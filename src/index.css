@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #e5e7eb;
+    user-select: none;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom frameless window drag area */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d0f12;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #252a35;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b4253;
+}
+
+.checkerboard-pattern {
+  background-color: #4e4e56;
+  background-image:
+    linear-gradient(45deg, #3a3a40 25%, transparent 25%),
+    linear-gradient(-45deg, #3a3a40 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #3a3a40 75%),
+    linear-gradient(-45deg, transparent 75%, #3a3a40 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}

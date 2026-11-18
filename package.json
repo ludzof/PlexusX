@@ -1,0 +1,40 @@
+{
+  "name": "plexus-x",
+  "version": "1.0.0",
+  "description": "High-performance gaming display, overlay & stretched resolution utility inspired by PlexusX",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ludzof/PlexusX.git"
+  },
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "vite",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron electron/main.cjs --dev\"",
+    "build": "tsc -b && vite build",
+    "engine:build": "dotnet build engine/engine.csproj -c Release",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^1.74.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.6.2",
+    "concurrently": "^10.0.7",
+    "electron": "^45.3.3",
+    "oxlint": "^1.90.0",
+    "postcss": "^8.5.33",
+    "tailwindcss": "^3.4.19",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.6",
+    "wait-on": "^9.5.1"
+  }
+}
