@@ -11,7 +11,13 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+build/
+release/
+dist_electron/
+*.spec
 *.local
+electron/engine.exe
+electron/stretch_bridge.exe
 
 # .NET artifacts
 bin/

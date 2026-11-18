@@ -14,8 +14,45 @@
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron electron/main.cjs --dev\"",
     "build": "tsc -b && vite build",
     "engine:build": "dotnet build engine/engine.csproj -c Release",
+    "package": "npm run build && electron-builder --win",
+    "package:dir": "npm run build && electron-builder --win --dir",
     "lint": "oxlint",
     "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.plexusx.app",
+    "productName": "PlexusX",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/engine.exe",
+        "to": "engine.exe"
+      },
+      {
+        "from": "electron/stretch_bridge.exe",
+        "to": "stretch_bridge.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PlexusX"
+    }
   },
   "dependencies": {
     "lucide-react": "^1.74.0",
@@ -30,6 +67,7 @@
     "autoprefixer": "^10.6.2",
     "concurrently": "^10.0.7",
     "electron": "^45.3.3",
+    "electron-builder": "^26.18.0",
     "oxlint": "^1.90.0",
     "postcss": "^8.5.33",
     "tailwindcss": "^3.4.19",

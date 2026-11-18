@@ -38,6 +38,18 @@ let currentCrosshairSettings = {
 
 // Locate C# engine.exe or fall back to dotnet run
 function getEnginePath() {
+  const resourceExe = path.join(process.resourcesPath, 'engine.exe');
+  if (fs.existsSync(resourceExe)) {
+    return { cmd: resourceExe, args: [] };
+  }
+  const localExe = path.join(__dirname, 'engine.exe');
+  if (fs.existsSync(localExe)) {
+    return { cmd: localExe, args: [] };
+  }
+  const publishExe = path.join(__dirname, '..', 'engine', 'bin', 'Publish', 'win-x64', 'engine.exe');
+  if (fs.existsSync(publishExe)) {
+    return { cmd: publishExe, args: [] };
+  }
   const releaseExe = path.join(__dirname, '..', 'engine', 'bin', 'Release', 'net9.0', 'engine.exe');
   if (fs.existsSync(releaseExe)) {
     return { cmd: releaseExe, args: [] };
@@ -387,8 +399,16 @@ let currentStretchHotkey = 'F8';
 
 function runStretchBridge(args) {
   return new Promise((resolve) => {
-    const bridgePath = path.join(__dirname, 'stretch_bridge.py');
-    const child = spawn('python', [bridgePath, ...args]);
+    const resourceBridge = path.join(process.resourcesPath, 'stretch_bridge.exe');
+    const localBridge = path.join(__dirname, 'stretch_bridge.exe');
+    const bridgeExe = fs.existsSync(resourceBridge) ? resourceBridge : localBridge;
+    let child;
+    if (fs.existsSync(bridgeExe)) {
+      child = spawn(bridgeExe, args);
+    } else {
+      const bridgePath = path.join(__dirname, 'stretch_bridge.py');
+      child = spawn('python', [bridgePath, ...args]);
+    }
     let out = '';
     let err = '';
     child.stdout.on('data', (d) => { out += d.toString(); });
