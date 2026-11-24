@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Display / Dark Boost
   applyDisplaySettings: (params) => ipcRenderer.invoke('apply-display-settings', params),
   resetDisplaySettings: () => ipcRenderer.invoke('reset-display-settings'),
+  identifyScreens: () => ipcRenderer.invoke('identify-screens'),
+  getMonitorsList: () => ipcRenderer.invoke('get-monitors-list'),
 
   // System
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),

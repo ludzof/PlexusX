@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { ColorWheel } from '../components/ColorWheel';
 import { QuickVibranceModal } from '../components/QuickVibranceModal';
+import { MonitorApplyCard } from '../components/MonitorApplyCard';
 
 interface DisplayPageProps {
   onNotify?: (msg: string) => void;
@@ -100,10 +101,9 @@ const COLOUR_VISION_OPTIONS = [
 ];
 
 export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
-  // Monitors State
-  const [monitors, setMonitors] = useState([
-    { id: 1, name: '24G2W1G4', res: '1920 × 1080', hz: 144, main: true, ticked: true },
-    { id: 2, name: '22B1W', res: '1080 × 1920', hz: 60, main: false, ticked: true },
+  // Monitors State (Selected display device names for multi-monitor isolation)
+  const [tickedMonitors, setTickedMonitors] = useState<string[]>([
+    '\\\\.\\DISPLAY1',
   ]);
 
   // Primary Sliders
@@ -151,7 +151,6 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [copiedSetup, setCopiedSetup] = useState<boolean>(false);
   const [showPhoneModal, setShowPhoneModal] = useState<boolean>(false);
-  const [identifyingScreens, setIdentifyingScreens] = useState<boolean>(false);
 
   // Generate dynamic share code string
   const generateCode = useCallback(() => {
@@ -170,6 +169,7 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
   useEffect(() => {
     if (window.electronAPI) {
       window.electronAPI.applyDisplaySettings({
+        targetMonitors: tickedMonitors,
         saturation: saturation / 100.0,
         vibrance: vibrance / 100.0,
         brightness: brightness / 100.0,
@@ -195,6 +195,7 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
       });
     }
   }, [
+    tickedMonitors,
     saturation,
     vibrance,
     brightness,
@@ -305,12 +306,6 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
     onNotify?.('Whole setup code copied!');
   };
 
-  const handleIdentifyScreens = () => {
-    setIdentifyingScreens(true);
-    setTimeout(() => setIdentifyingScreens(false), 3000);
-    onNotify?.('Identifying screens: flashing numbers on each monitor.');
-  };
-
   const getHueName = (deg: number) => {
     const d = (deg % 360 + 360) % 360;
     if (d >= 330 || d < 30) return 'Red';
@@ -322,7 +317,6 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
   };
 
   const currentPresets = GAME_PRESETS[selectedGame] || GAME_PRESETS['Rust'];
-  const tickedMonitors = monitors.filter((m) => m.ticked).map((m) => `Monitor ${m.id}`).join(', ');
 
   return (
     <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6 select-none bg-[#0c0d0f] text-gray-200">
@@ -379,75 +373,11 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
         </div>
       </div>
 
-      {/* Screen Identification Flash Overlay */}
-      {identifyingScreens && (
-        <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center bg-black/40">
-          <div className="bg-black/90 border-4 border-emerald-400 rounded-3xl p-12 text-center shadow-[0_0_80px_rgba(0,240,118,0.5)]">
-            <span className="text-8xl font-black text-white">1</span>
-            <p className="text-xl font-bold text-emerald-400 mt-2">24G2W1G4 (Main)</p>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Apply to (Screens Card) */}
-      <div className="bg-[#12151b] border border-[#1e232e] rounded-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-xs font-bold text-white uppercase tracking-wider">Apply to</h2>
-            <p className="text-[11px] text-gray-400">Unticked monitors keep their own colours.</p>
-          </div>
-          <button
-            onClick={handleIdentifyScreens}
-            className="px-3 py-1 rounded-md text-[11px] font-semibold bg-[#181d26] text-gray-300 hover:text-white border border-[#262e3d] transition cursor-pointer"
-          >
-            Identify screens
-          </button>
-        </div>
-
-        {/* Monitor Boxes */}
-        <div className="grid grid-cols-2 gap-3">
-          {monitors.map((m) => (
-            <div
-              key={m.id}
-              onClick={() => {
-                setMonitors((prev) =>
-                  prev.map((item) => (item.id === m.id ? { ...item, ticked: !item.ticked } : item))
-                );
-              }}
-              className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition ${
-                m.ticked
-                  ? 'bg-[#161a22] border-emerald-500/30'
-                  : 'bg-[#101217] border-[#1f242e] opacity-60'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <div className="w-6 h-6 rounded-md bg-[#202634] text-white font-bold text-xs flex items-center justify-center">
-                  {m.id}
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-white flex items-center space-x-1.5">
-                    <span>{m.name}</span>
-                    {m.main && (
-                      <span className="text-[10px] text-emerald-400 font-semibold">• main</span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-gray-400">
-                    {m.res} · {m.hz} Hz
-                  </div>
-                </div>
-              </div>
-              <div
-                className={`w-4 h-4 rounded border flex items-center justify-center transition ${
-                  m.ticked ? 'bg-emerald-500 border-emerald-500' : 'border-gray-500'
-                }`}
-              >
-                {m.ticked && <Check className="w-3 h-3 text-black stroke-[3]" />}
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="text-[10px] text-gray-500 mt-2.5">Ticked: {tickedMonitors || 'None'}</p>
-      </div>
+      {/* 2. Apply to (Screens Card matching PlexusX screenshot) */}
+      <MonitorApplyCard
+        onTickedMonitorsChange={(ticked) => setTickedMonitors(ticked)}
+        onNotify={onNotify}
+      />
 
       {/* 3. Primary Sliders (Side-by-side Big Cards) */}
       <div className="grid grid-cols-2 gap-4">

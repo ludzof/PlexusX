@@ -310,9 +310,140 @@ ipcMain.handle('get-crosshair', () => {
 });
 
 // Display / Gamma / Dark Boost controls
+let identifyWindows = [];
+
+ipcMain.handle('identify-screens', () => {
+  identifyWindows.forEach((w) => {
+    try {
+      if (!w.isDestroyed()) w.close();
+    } catch {}
+  });
+  identifyWindows = [];
+
+  const displays = screen.getAllDisplays();
+  const primaryId = screen.getPrimaryDisplay().id;
+
+  // Primary screen is 1, secondary is 2
+  displays.sort((a, b) => (b.id === primaryId ? 1 : 0) - (a.id === primaryId ? 1 : 0));
+
+  displays.forEach((disp, idx) => {
+    const isPrimary = disp.id === primaryId;
+    const num = idx + 1;
+    const friendlyName = isPrimary ? '24G2W1G4' : '22B1W';
+    const winW = 180;
+    const winH = 140;
+    const posX = Math.round(disp.bounds.x + (disp.bounds.width - winW) / 2);
+    const posY = Math.round(disp.bounds.y + (disp.bounds.height - winH) / 2);
+
+    const win = new BrowserWindow({
+      width: winW,
+      height: winH,
+      x: posX,
+      y: posY,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      focusable: false,
+      hasShadow: false,
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    win.setAlwaysOnTop(true, 'screen-saver');
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent; overflow: hidden; user-select: none;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      width: 150px; height: 120px;
+      background: rgba(18, 21, 27, 0.95);
+      border: 3px solid #00f076;
+      border-radius: 20px;
+      box-shadow: 0 0 40px rgba(0, 240, 118, 0.45), 0 10px 40px rgba(0, 0, 0, 0.85);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      backdrop-filter: blur(12px);
+    }
+    .num {
+      font-size: 60px; font-weight: 900; color: #ffffff;
+      line-height: 1; letter-spacing: -2px;
+      text-shadow: 0 0 20px rgba(0, 240, 118, 0.5);
+    }
+    .title {
+      font-size: 11px; font-weight: 700; color: #00f076;
+      margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card" onclick="window.close()">
+    <div class="num">${num}</div>
+    <div class="title">${friendlyName}${isPrimary ? ' • MAIN' : ''}</div>
+  </div>
+</body>
+</html>`;
+
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    win.once('ready-to-show', () => {
+      win.showInactive();
+    });
+    identifyWindows.push(win);
+  });
+
+  setTimeout(() => {
+    identifyWindows.forEach((w) => {
+      try {
+        if (!w.isDestroyed()) w.close();
+      } catch {}
+    });
+    identifyWindows = [];
+  }, 2500);
+
+  return { success: true };
+});
+
+ipcMain.handle('get-monitors-list', () => {
+  const displays = screen.getAllDisplays();
+  const primaryId = screen.getPrimaryDisplay().id;
+  displays.sort((a, b) => (b.id === primaryId ? 1 : 0) - (a.id === primaryId ? 1 : 0));
+
+  return displays.map((d, index) => {
+    const isPrimary = d.id === primaryId;
+    return {
+      id: index + 1,
+      name: isPrimary ? '24G2W1G4' : '22B1W',
+      friendlyName: isPrimary ? '24G2W1G4' : '22B1W',
+      deviceName: isPrimary ? '\\\\.\\DISPLAY1' : '\\\\.\\DISPLAY2',
+      res: `${d.bounds.width} × ${d.bounds.height}`,
+      width: d.bounds.width,
+      height: d.bounds.height,
+      hz: isPrimary ? 144 : 60,
+      main: isPrimary,
+      isPrimary: isPrimary,
+      bounds: d.bounds,
+      ticked: isPrimary,
+    };
+  });
+});
+
 ipcMain.handle('apply-display-settings', (event, params) => {
   sendEngineCommand({
     action: 'apply',
+    targetMonitors: params.targetMonitors || [],
     saturation: params.saturation ?? 1.0,
     vibrance: params.vibrance ?? 1.0,
     brightness: params.brightness ?? 1.0,

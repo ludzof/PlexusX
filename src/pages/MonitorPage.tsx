@@ -39,8 +39,11 @@ export const MonitorPage: React.FC<MonitorPageProps> = ({ onNotify }) => {
 
   const handleIdentify = () => {
     setShowIdentity(true);
+    if (window.electronAPI?.identifyScreens) {
+      window.electronAPI.identifyScreens();
+    }
     setTimeout(() => setShowIdentity(false), 2500);
-    onNotify?.('Identifying active monitors...');
+    onNotify?.('Identifying active monitors: flashing screen numbers.');
   };
 
   return (

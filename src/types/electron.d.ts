@@ -32,6 +32,7 @@ export interface CrosshairSettings {
 }
 
 export interface DisplayAdjustmentParams {
+  targetMonitors?: string[];
   gamma?: number;
   brightness?: number;
   contrast?: number;
@@ -57,17 +58,23 @@ export interface SystemInfo {
 }
 
 export interface MonitorItem {
+  id?: number;
+  name?: string;
   deviceName: string;
   friendlyName: string;
+  res?: string;
   isPrimary: boolean;
+  main?: boolean;
+  ticked?: boolean;
   width: number;
   height: number;
   hz: number;
-  x: number;
-  y: number;
-  orientation: number;
-  isVertical: boolean;
-  status: string;
+  x?: number;
+  y?: number;
+  orientation?: number;
+  isVertical?: boolean;
+  status?: string;
+  bounds?: { x: number; y: number; width: number; height: number };
 }
 
 export interface ElectronAPI {
@@ -79,6 +86,8 @@ export interface ElectronAPI {
   onCrosshairChanged: (callback: (settings: CrosshairSettings) => void) => () => void;
   applyDisplaySettings: (params: DisplayAdjustmentParams) => Promise<{ success: boolean }>;
   resetDisplaySettings: () => Promise<{ success: boolean }>;
+  identifyScreens: () => Promise<{ success: boolean }>;
+  getMonitorsList: () => Promise<MonitorItem[]>;
   getSystemInfo: () => Promise<SystemInfo>;
   onZoomToggle: (callback: () => void) => () => void;
   onDarkBoostToggle?: (callback: () => void) => () => void;

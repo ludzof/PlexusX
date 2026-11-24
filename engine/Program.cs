@@ -84,6 +84,7 @@ namespace PlexusEngine
         public string scalingMode { get; set; } = "fullscreen";
         public int beepFreq { get; set; } = 880;
         public int beepDur { get; set; } = 100;
+        public List<string> targetMonitors { get; set; } = new List<string>();
     }
 
     class Program
@@ -105,8 +106,17 @@ namespace PlexusEngine
         public static extern bool MagSetFullscreenUseBitmapSmoothing(bool useSmoothing);
 
         // GDI APIs for gamma ramps
+        [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr CreateDC(string? lpszDriver, string lpszDevice, string? lpszOutput, IntPtr lpInitData);
+
+        [DllImport("gdi32.dll")]
+        public static extern bool DeleteDC(IntPtr hdc);
+
         [DllImport("gdi32.dll")]
         public static extern bool SetDeviceGammaRamp(IntPtr hdc, ref RAMP lpRamp);
+
+        [DllImport("gdi32.dll")]
+        public static extern bool GetDeviceGammaRamp(IntPtr hdc, ref RAMP lpRamp);
 
         [DllImport("user32.dll")]
         public static extern IntPtr GetDC(IntPtr hWnd);
@@ -181,6 +191,94 @@ namespace PlexusEngine
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern bool EnumDisplayDevices(string? lpDevice, int iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, int dwFlags);
+
+        // QueryDisplayConfig structs for EDID Monitor Friendly Names
+        [StructLayout(LayoutKind.Sequential)]
+        public struct LUID { public uint LowPart; public int HighPart; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_RATIONAL { public uint Numerator; public uint Denominator; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_PATH_SOURCE_INFO
+        {
+            public LUID adapterId;
+            public uint id;
+            public uint modeInfoIdx;
+            public uint statusFlags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_PATH_TARGET_INFO
+        {
+            public LUID adapterId;
+            public uint id;
+            public uint modeInfoIdx;
+            public uint outputTechnology;
+            public uint rotation;
+            public uint scaling;
+            public DISPLAYCONFIG_RATIONAL refreshRate;
+            public uint scanLineOrdering;
+            public bool targetAvailable;
+            public uint statusFlags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_PATH_INFO
+        {
+            public DISPLAYCONFIG_PATH_SOURCE_INFO sourceInfo;
+            public DISPLAYCONFIG_PATH_TARGET_INFO targetInfo;
+            public uint flags;
+        }
+
+        [StructLayout(LayoutKind.Explicit, Size = 64)]
+        public struct DISPLAYCONFIG_MODE_INFO
+        {
+            [FieldOffset(0)] public uint infoType;
+        }
+
+        public struct DISPLAYCONFIG_DEVICE_INFO_HEADER
+        {
+            public uint type;
+            public uint size;
+            public LUID adapterId;
+            public uint id;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_TARGET_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint flags;
+            public uint outputTechnology;
+            public ushort edidManufactureId;
+            public ushort edidProductCodeId;
+            public uint connectorInstance;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+            public string monitorFriendlyDeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string monitorDevicePath;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_SOURCE_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string viewGdiDeviceName;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern int GetDisplayConfigBufferSizes(uint flags, out uint numPathArrayElements, out uint numModeInfoArrayElements);
+
+        [DllImport("user32.dll")]
+        public static extern int QueryDisplayConfig(uint flags, ref uint numPathArrayElements, [Out] DISPLAYCONFIG_PATH_INFO[] pathInfoArray, ref uint numModeInfoArrayElements, [Out] DISPLAYCONFIG_MODE_INFO[] modeInfoArray, IntPtr currentTopologyId);
+
+        [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")]
+        public static extern int GetTargetName(ref DISPLAYCONFIG_TARGET_DEVICE_NAME deviceName);
+
+        [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")]
+        public static extern int GetSourceName(ref DISPLAYCONFIG_SOURCE_DEVICE_NAME deviceName);
 
         // Low-level mouse and keyboard hooks
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
@@ -299,11 +397,51 @@ namespace PlexusEngine
                         }
                         else
                         {
-                            var matrix = BuildExactPlexusMatrix(cmd);
-                            bool matrixOk = ApplyMatrix(matrix);
-                            bool gammaOk = ApplyExactToneCurve(cmd);
-                            Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":{matrixOk.ToString().ToLower()},\"gamma\":{gammaOk.ToString().ToLower()}}}");
+                            List<string> allDevs = GetAttachedDisplayDeviceNames();
+                            bool noneTicked = cmd.targetMonitors != null && cmd.targetMonitors.Count == 0;
+                            bool someUnticked = cmd.targetMonitors != null && cmd.targetMonitors.Count > 0 && allDevs.Count > 0 && cmd.targetMonitors.Count < allDevs.Count;
+
+                            if (noneTicked)
+                            {
+                                ApplyMatrix(IdentityMatrix);
+                                ResetSafeGamma();
+                                Console.WriteLine("{\"status\":\"ok\",\"action\":\"apply\",\"paused\":true}");
+                            }
+                            else if (someUnticked)
+                            {
+                                // Whole-desktop magnification effects paused while any monitor is unticked
+                                ApplyMatrix(IdentityMatrix);
+                                bool gammaOk = ApplyExactToneCurve(cmd);
+                                Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":false,\"gamma\":{gammaOk.ToString().ToLower()},\"unticked\":true}}");
+                            }
+                            else
+                            {
+                                // All monitors ticked -> Full matrix + gamma
+                                var matrix = BuildExactPlexusMatrix(cmd);
+                                bool matrixOk = ApplyMatrix(matrix);
+                                bool gammaOk = ApplyExactToneCurve(cmd);
+                                Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":{matrixOk.ToString().ToLower()},\"gamma\":{gammaOk.ToString().ToLower()}}}");
+                            }
                         }
+                    }
+                    else if (cmd.action == "get-monitors")
+                    {
+                        var monitors = GetDesktopMonitors();
+                        var list = monitors.Select((m, i) => new
+                        {
+                            id = i + 1,
+                            deviceName = m.DeviceName,
+                            name = m.FriendlyName,
+                            friendlyName = m.FriendlyName,
+                            res = $"{m.Width} × {m.Height}",
+                            width = m.Width,
+                            height = m.Height,
+                            hz = m.Hz,
+                            main = m.IsPrimary,
+                            isPrimary = m.IsPrimary,
+                            bounds = new { x = m.X, y = m.Y, width = m.Width, height = m.Height }
+                        }).ToList();
+                        Console.WriteLine(JsonSerializer.Serialize(new { status = "ok", action = "get-monitors", monitors = list }));
                     }
                     else if (cmd.action == "reset")
                     {
@@ -593,14 +731,50 @@ namespace PlexusEngine
             EnforceMonotonic(ramp.Green);
             EnforceMonotonic(ramp.Blue);
 
-            IntPtr hdc = GetDC(IntPtr.Zero);
-            if (hdc != IntPtr.Zero)
+            RAMP identityRamp = CreateIdentityRamp();
+            List<string> allDevs = GetAttachedDisplayDeviceNames();
+            if (allDevs.Count == 0)
             {
-                bool res = SetDeviceGammaRamp(hdc, ref ramp);
-                ReleaseDC(IntPtr.Zero, hdc);
-                return res;
+                allDevs.Add(GetPrimaryDeviceName());
             }
-            return false;
+
+            bool anyOk = false;
+            foreach (var dev in allDevs)
+            {
+                bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 || cmd.targetMonitors.Contains(dev);
+                IntPtr hdc = CreateDC(null, dev, null, IntPtr.Zero);
+                if (hdc != IntPtr.Zero)
+                {
+                    try
+                    {
+                        if (shouldApply)
+                        {
+                            if (SetDeviceGammaRamp(hdc, ref ramp)) anyOk = true;
+                        }
+                        else
+                        {
+                            // Unticked monitor keeps its own colours!
+                            SetDeviceGammaRamp(hdc, ref identityRamp);
+                        }
+                    }
+                    finally
+                    {
+                        DeleteDC(hdc);
+                    }
+                }
+            }
+
+            if (!anyOk)
+            {
+                IntPtr hdcFallback = GetDC(IntPtr.Zero);
+                if (hdcFallback != IntPtr.Zero)
+                {
+                    anyOk = SetDeviceGammaRamp(hdcFallback, ref ramp);
+                    ReleaseDC(IntPtr.Zero, hdcFallback);
+                }
+            }
+
+            return anyOk;
         }
 
         private static double WeightVal(double v, int sharpness)
@@ -656,27 +830,34 @@ namespace PlexusEngine
 
         public static bool ResetSafeGamma()
         {
-            RAMP ramp = new RAMP
+            RAMP ramp = CreateIdentityRamp();
+            List<string> allDevs = GetAttachedDisplayDeviceNames();
+            if (allDevs.Count == 0) allDevs.Add(GetPrimaryDeviceName());
+
+            bool anyOk = false;
+            foreach (var dev in allDevs)
             {
-                Red = new ushort[256],
-                Green = new ushort[256],
-                Blue = new ushort[256]
-            };
-            for (int i = 0; i < 256; i++)
-            {
-                ushort val = (ushort)(i * 257);
-                ramp.Red[i] = val;
-                ramp.Green[i] = val;
-                ramp.Blue[i] = val;
+                IntPtr hdc = CreateDC(null, dev, null, IntPtr.Zero);
+                if (hdc != IntPtr.Zero)
+                {
+                    try
+                    {
+                        if (SetDeviceGammaRamp(hdc, ref ramp)) anyOk = true;
+                    }
+                    finally
+                    {
+                        DeleteDC(hdc);
+                    }
+                }
             }
-            IntPtr hdc = GetDC(IntPtr.Zero);
-            if (hdc != IntPtr.Zero)
+
+            IntPtr hdcFallback = GetDC(IntPtr.Zero);
+            if (hdcFallback != IntPtr.Zero)
             {
-                bool res = SetDeviceGammaRamp(hdc, ref ramp);
-                ReleaseDC(IntPtr.Zero, hdc);
-                return res;
+                SetDeviceGammaRamp(hdcFallback, ref ramp);
+                ReleaseDC(IntPtr.Zero, hdcFallback);
             }
-            return false;
+            return anyOk;
         }
 
         // ==========================================
@@ -1027,9 +1208,107 @@ namespace PlexusEngine
             return @"\\.\DISPLAY1";
         }
 
+        public static RAMP CreateIdentityRamp()
+        {
+            RAMP ramp = new RAMP
+            {
+                Red = new ushort[256],
+                Green = new ushort[256],
+                Blue = new ushort[256]
+            };
+            for (int i = 0; i < 256; i++)
+            {
+                ushort val = (ushort)((i * 65535) / 255);
+                ramp.Red[i] = val;
+                ramp.Green[i] = val;
+                ramp.Blue[i] = val;
+            }
+            return ramp;
+        }
+
+        public static List<string> GetAttachedDisplayDeviceNames()
+        {
+            var list = new List<string>();
+            DISPLAY_DEVICE d = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
+            for (int i = 0; EnumDisplayDevices(null, i, ref d, 0); i++)
+            {
+                if ((d.StateFlags & 1) != 0 && (d.StateFlags & 8) == 0) // ATTACHED_TO_DESKTOP and NOT MIRRORING
+                {
+                    string name = d.DeviceName.TrimEnd('\0');
+                    if (!list.Contains(name))
+                    {
+                        list.Add(name);
+                    }
+                }
+                d = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
+            }
+            return list;
+        }
+
+        public static Dictionary<string, (string FriendlyName, int Hz)> GetDisplayFriendlyNames()
+        {
+            var dict = new Dictionary<string, (string FriendlyName, int Hz)>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                uint pathCount = 0, modeCount = 0;
+                int err = GetDisplayConfigBufferSizes(2, out pathCount, out modeCount); // QDC_ONLY_ACTIVE_PATHS = 2
+                if (err == 0 && pathCount > 0 && modeCount > 0)
+                {
+                    var paths = new DISPLAYCONFIG_PATH_INFO[pathCount];
+                    var modes = new DISPLAYCONFIG_MODE_INFO[modeCount];
+                    err = QueryDisplayConfig(2, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero);
+                    if (err == 0)
+                    {
+                        for (int i = 0; i < pathCount; i++)
+                        {
+                            var src = new DISPLAYCONFIG_SOURCE_DEVICE_NAME
+                            {
+                                header = new DISPLAYCONFIG_DEVICE_INFO_HEADER
+                                {
+                                    type = 1,
+                                    size = (uint)Marshal.SizeOf<DISPLAYCONFIG_SOURCE_DEVICE_NAME>(),
+                                    adapterId = paths[i].sourceInfo.adapterId,
+                                    id = paths[i].sourceInfo.id
+                                }
+                            };
+                            GetSourceName(ref src);
+
+                            var tgt = new DISPLAYCONFIG_TARGET_DEVICE_NAME
+                            {
+                                header = new DISPLAYCONFIG_DEVICE_INFO_HEADER
+                                {
+                                    type = 2,
+                                    size = (uint)Marshal.SizeOf<DISPLAYCONFIG_TARGET_DEVICE_NAME>(),
+                                    adapterId = paths[i].targetInfo.adapterId,
+                                    id = paths[i].targetInfo.id
+                                }
+                            };
+                            GetTargetName(ref tgt);
+
+                            int hz = 0;
+                            if (paths[i].targetInfo.refreshRate.Denominator != 0)
+                            {
+                                hz = (int)Math.Round((double)paths[i].targetInfo.refreshRate.Numerator / paths[i].targetInfo.refreshRate.Denominator);
+                            }
+
+                            string gdi = src.viewGdiDeviceName?.TrimEnd('\0') ?? "";
+                            string friendly = tgt.monitorFriendlyDeviceName?.TrimEnd('\0') ?? "";
+                            if (!string.IsNullOrEmpty(gdi))
+                            {
+                                dict[gdi] = (string.IsNullOrEmpty(friendly) ? gdi : friendly, hz);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return dict;
+        }
+
         public class MonitorPlacementInfo
         {
             public string DeviceName { get; set; } = "";
+            public string FriendlyName { get; set; } = "";
             public int X { get; set; }
             public int Y { get; set; }
             public int Width { get; set; }
@@ -1042,25 +1321,35 @@ namespace PlexusEngine
         private static List<MonitorPlacementInfo> GetDesktopMonitors()
         {
             var list = new List<MonitorPlacementInfo>();
+            var friendlyMap = GetDisplayFriendlyNames();
             DISPLAY_DEVICE d = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
             for (int i = 0; EnumDisplayDevices(null, i, ref d, 0); i++)
             {
-                if ((d.StateFlags & 1) != 0) // ATTACHED_TO_DESKTOP
+                if ((d.StateFlags & 1) != 0 && (d.StateFlags & 8) == 0) // ATTACHED_TO_DESKTOP
                 {
                     string devName = d.DeviceName.TrimEnd('\0');
                     bool isPrim = (d.StateFlags & 4) != 0;
                     DEVMODE dm = NewDevMode();
                     if (EnumDisplaySettings(devName, -1, ref dm))
                     {
+                        string fname = devName;
+                        int hz = dm.dmDisplayFrequency;
+                        if (friendlyMap.TryGetValue(devName, out var finfo))
+                        {
+                            fname = finfo.FriendlyName;
+                            if (finfo.Hz > 0) hz = finfo.Hz;
+                        }
+
                         list.Add(new MonitorPlacementInfo
                         {
                             DeviceName = devName,
+                            FriendlyName = fname,
                             X = dm.dmPositionX,
                             Y = dm.dmPositionY,
                             Width = dm.dmPelsWidth,
                             Height = dm.dmPelsHeight,
                             Orientation = dm.dmDisplayOrientation,
-                            Hz = dm.dmDisplayFrequency,
+                            Hz = hz,
                             IsPrimary = isPrim
                         });
                     }
@@ -1262,9 +1551,13 @@ namespace PlexusEngine
 
             var monitorList = monitors.Select((mon, i) => new
             {
+                id = i + 1,
                 deviceName = mon.DeviceName,
-                friendlyName = mon.IsPrimary ? "Main Display (Horizontal)" : "Secondary Display (Vertical)",
+                name = mon.FriendlyName,
+                friendlyName = mon.FriendlyName,
+                res = $"{mon.Width} × {mon.Height}",
                 isPrimary = mon.IsPrimary,
+                main = mon.IsPrimary,
                 width = mon.Width,
                 height = mon.Height,
                 hz = mon.Hz,
@@ -1272,7 +1565,7 @@ namespace PlexusEngine
                 y = mon.Y,
                 orientation = mon.Orientation,
                 isVertical = mon.Height > mon.Width || mon.Orientation == 1 || mon.Orientation == 3,
-                status = mon.IsPrimary ? "Target of Stretched Resolution" : "Protected / Untouched"
+                status = mon.IsPrimary ? "Target of Stretched Resolution" : "Secondary Display"
             }).ToList();
 
             return new
