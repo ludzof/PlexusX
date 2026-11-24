@@ -150,10 +150,13 @@ function createMainWindow() {
     mainWindow.show();
   });
 
+  mainWindow.on('close', () => {
+    cleanupAndResetEngine();
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
     if (crosshairOverlayWindow) crosshairOverlayWindow.close();
-    // Keep user's chosen display colors active on desktop even when app window is closed
   });
 }
 
@@ -265,9 +268,28 @@ app.whenReady().then(() => {
   });
 });
 
+function cleanupAndResetEngine() {
+  try {
+    sendEngineCommand({ action: 'reset' });
+  } catch (err) {}
+  try {
+    sendEngineCommand({ action: 'exit' });
+  } catch (err) {}
+  try {
+    const { cmd } = getEnginePath();
+    if (cmd && fs.existsSync(cmd) && cmd.endsWith('.exe')) {
+      execSync(`"${cmd}" reset`, { timeout: 2000, stdio: 'ignore' });
+    }
+  } catch (err) {}
+}
+
+app.on('before-quit', () => {
+  cleanupAndResetEngine();
+});
+
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
-  sendEngineCommand({ action: 'reset' });
+  cleanupAndResetEngine();
   if (engineProcess) {
     try {
       engineProcess.kill();
@@ -289,6 +311,7 @@ ipcMain.handle('window-maximize', () => {
 });
 
 ipcMain.handle('window-close', () => {
+  cleanupAndResetEngine();
   mainWindow?.close();
 });
 

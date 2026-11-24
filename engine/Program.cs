@@ -359,6 +359,13 @@ namespace PlexusEngine
 
         static void Main(string[] args)
         {
+            if (args.Length > 0 && args[0].Equals("reset", StringComparison.OrdinalIgnoreCase))
+            {
+                ResetAll();
+                Console.WriteLine("{\"status\":\"ok\",\"action\":\"reset\"}");
+                return;
+            }
+
             try
             {
                 _magInitialized = MagInitialize();
@@ -367,6 +374,9 @@ namespace PlexusEngine
             {
                 Console.WriteLine($"{{\"status\":\"mag_init_failed\",\"error\":\"{ex.Message}\"}}");
             }
+
+            EnsureNvApiInitialized();
+            EnsureAllOriginalGammasSaved();
 
             // Start background thread for mouse and keyboard hook
             Thread hookThread = new Thread(HookMessageLoop)
@@ -713,6 +723,11 @@ namespace PlexusEngine
             double sShadowTint = Math.Clamp(cmd.shadowTint, -100, 100) / 100.0;
             double sHighlightTint = Math.Clamp(cmd.highlightTint, -100, 100) / 100.0;
 
+            bool isNeutralTone = Math.Abs(resolvedGamma - 1.0) < 0.001 &&
+                                 Math.Abs(sShadows) < 0.001 && Math.Abs(sHighlights) < 0.001 &&
+                                 Math.Abs(sBlacks) < 0.001 && Math.Abs(sWhites) < 0.001 &&
+                                 Math.Abs(sShadowTint) < 0.001 && Math.Abs(sHighlightTint) < 0.001;
+
             // PlexusX GradeCurve defaults
             const double regionRange = 0.35;
             const int regionSharpness = 2;
@@ -754,7 +769,13 @@ namespace PlexusEngine
             bool anyOk = false;
             foreach (var dev in allDevs)
             {
-                bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 || cmd.targetMonitors.Contains(dev);
+                bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 ||
+                    cmd.targetMonitors.Any(m =>
+                        string.Equals(m, dev, StringComparison.OrdinalIgnoreCase) ||
+                        (dev.EndsWith("DISPLAY1") && m.Contains("DISPLAY1")) ||
+                        (dev.EndsWith("DISPLAY2") && m.Contains("DISPLAY2"))
+                    );
+
                 IntPtr hdc = CreateDC(null, dev, null, IntPtr.Zero);
                 if (hdc != IntPtr.Zero)
                 {
@@ -764,7 +785,22 @@ namespace PlexusEngine
 
                         if (shouldApply)
                         {
-                            if (SetDeviceGammaRamp(hdc, ref ramp)) anyOk = true;
+                            if (isNeutralTone)
+                            {
+                                // User has not adjusted tone sliders: preserve natural calibrated monitor gamma!
+                                if (_originalRamps.TryGetValue(dev, out var origRamp))
+                                {
+                                    if (SetDeviceGammaRamp(hdc, ref origRamp)) anyOk = true;
+                                }
+                                else
+                                {
+                                    if (SetDeviceGammaRamp(hdc, ref identityRamp)) anyOk = true;
+                                }
+                            }
+                            else
+                            {
+                                if (SetDeviceGammaRamp(hdc, ref ramp)) anyOk = true;
+                            }
                         }
                         else
                         {
@@ -863,6 +899,31 @@ namespace PlexusEngine
                     _originalRamps[dev] = r;
                 }
             }
+        }
+
+        public static void EnsureAllOriginalGammasSaved()
+        {
+            try
+            {
+                List<string> allDevs = GetAttachedDisplayDeviceNames();
+                if (allDevs.Count == 0) allDevs.Add(GetPrimaryDeviceName());
+                foreach (var dev in allDevs)
+                {
+                    IntPtr hdc = CreateDC(null, dev, null, IntPtr.Zero);
+                    if (hdc != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            EnsureOriginalGammaSaved(dev, hdc);
+                        }
+                        finally
+                        {
+                            DeleteDC(hdc);
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         public static bool ResetSafeGamma()
@@ -984,28 +1045,46 @@ namespace PlexusEngine
                 if (_cachedNvDisplays == null || _cachedNvDisplays.Count == 0) return false;
 
                 // Combine Saturation and Vibrance into hardware DVC:
-                // 100% saturation (1.0) * 100% vibrance (1.0) = 1.0 -> DVC 50 (neutral normal)
-                // 200% saturation (2.0) -> DVC 100 (max saturation)
-                // 0% saturation (0.0) -> DVC 0 (monochrome)
+                // 100% saturation (1.0) * 100% vibrance (1.0) = 1.0 -> Normal user baseline (87 on Mon 1, 74 on Mon 2)
+                // > 1.0 -> Scale up from baseline towards 100% saturation
+                // < 1.0 -> Scale down from baseline towards 0%
                 double totalSat = (cmd.saturation <= 0.0 ? 1.0 : cmd.saturation) * (cmd.vibrance <= 0.0 ? 1.0 : cmd.vibrance);
-                int targetDvc = 50;
-                if (totalSat >= 1.0)
-                {
-                    targetDvc = (int)Math.Round(50.0 + (totalSat - 1.0) * 50.0);
-                }
-                else
-                {
-                    targetDvc = (int)Math.Round(totalSat * 50.0);
-                }
-                targetDvc = Math.Clamp(targetDvc, 0, 100);
 
                 bool anySet = false;
                 foreach (var item in _cachedNvDisplays)
                 {
-                    bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 || cmd.targetMonitors.Contains(item.GdiName);
+                    bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 ||
+                        cmd.targetMonitors.Any(m =>
+                            string.Equals(m, item.GdiName, StringComparison.OrdinalIgnoreCase) ||
+                            (item.GdiName.EndsWith("DISPLAY1") && m.Contains("DISPLAY1")) ||
+                            (item.GdiName.EndsWith("DISPLAY2") && m.Contains("DISPLAY2"))
+                        );
 
                     int orig = _originalDvcMap.TryGetValue(item.DisplayId, out int val) ? val : (item.GdiName.EndsWith("1") ? 87 : 74);
-                    int levelToSet = shouldApply ? targetDvc : orig;
+                    int levelToSet;
+
+                    if (!shouldApply)
+                    {
+                        // Unticked monitor remains at its normal baseline!
+                        levelToSet = orig;
+                    }
+                    else if (Math.Abs(totalSat - 1.0) < 0.001)
+                    {
+                        // 100% neutral slider: preserve user's vibrant baseline (87 on Mon 1, 74 on Mon 2)
+                        levelToSet = orig;
+                    }
+                    else if (totalSat > 1.0)
+                    {
+                        // Scale up from normal baseline towards 100% max
+                        levelToSet = (int)Math.Round(orig + (totalSat - 1.0) * (100.0 - orig));
+                    }
+                    else
+                    {
+                        // Scale down below normal baseline towards 0%
+                        levelToSet = (int)Math.Round(totalSat * orig);
+                    }
+                    levelToSet = Math.Clamp(levelToSet, 0, 100);
+
                     try
                     {
                         var outputId = (NvAPIWrapper.Native.GPU.OutputId)item.DisplayId;
