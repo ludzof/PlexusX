@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Check, Eye } from 'lucide-react';
 import { MonitorItem } from '../types/electron';
 
@@ -96,12 +96,18 @@ export const MonitorApplyCard: React.FC<MonitorApplyCardProps> = ({
     fetchMonitors();
   }, []);
 
+  const lastEmittedRef = useRef<string>('');
+
   // Sync ticked monitors with parent whenever monitors state changes
   useEffect(() => {
     const ticked = monitors.filter((m) => m.ticked).map((m) => m.deviceName);
-    localStorage.setItem('plexus_ticked_monitors', JSON.stringify(ticked));
-    onTickedMonitorsChange?.(ticked);
-  }, [monitors, onTickedMonitorsChange]);
+    const serialized = JSON.stringify(ticked);
+    if (lastEmittedRef.current !== serialized) {
+      lastEmittedRef.current = serialized;
+      localStorage.setItem('plexus_ticked_monitors', serialized);
+      onTickedMonitorsChange?.(ticked);
+    }
+  }, [monitors]);
 
   const toggleMonitor = (id: number) => {
     setMonitors((prev) =>

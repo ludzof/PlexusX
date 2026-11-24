@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   RotateCcw,
   Check,
@@ -106,6 +106,13 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
     '\\\\.\\DISPLAY1',
   ]);
 
+  const handleTickedMonitorsChange = useCallback((ticked: string[]) => {
+    setTickedMonitors((prev) => {
+      if (JSON.stringify(prev) === JSON.stringify(ticked)) return prev;
+      return ticked;
+    });
+  }, []);
+
   // Primary Sliders
   const [saturation, setSaturation] = useState<number>(100); // 0–300%
   const [vibrance, setVibrance] = useState<number>(100);     // 0–350%
@@ -165,35 +172,49 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
     setShareCode(generateCode());
   }, [generateCode]);
 
-  // Live apply to C# engine through Electron API
+  const lastSentParamsRef = useRef<string>('');
+
+  // Live apply to C# engine through Electron API (debounced & deduplicated)
   useEffect(() => {
-    if (window.electronAPI) {
-      window.electronAPI.applyDisplaySettings({
-        targetMonitors: tickedMonitors,
-        saturation: saturation / 100.0,
-        vibrance: vibrance / 100.0,
-        brightness: brightness / 100.0,
-        contrast: contrast / 100.0,
-        gamma: gamma,
-        temperature: temperature,
-        highlights: highlights,
-        shadows: shadows,
-        blacks: blacks,
-        whites: whites,
-        shadowTint: shadowTint,
-        highlightTint: highlightTint,
-        formula: formulaIndex,
-        darken: darken,
-        darkenHue: darkenHue,
-        hueTurn: hueTurn,
-        hueTurnAmount: hueTurnAmount,
-        hueComplement: hueComplement,
-        colourVision: colourVisionMode,
-        eyeCareWarmth: eyeCareWarmth,
-        eyeCareDim: eyeCareDim,
-        previewNeutral: isComparing,
-      });
+    const params = {
+      targetMonitors: tickedMonitors,
+      saturation: saturation / 100.0,
+      vibrance: vibrance / 100.0,
+      brightness: brightness / 100.0,
+      contrast: contrast / 100.0,
+      gamma: gamma,
+      temperature: temperature,
+      highlights: highlights,
+      shadows: shadows,
+      blacks: blacks,
+      whites: whites,
+      shadowTint: shadowTint,
+      highlightTint: highlightTint,
+      formula: formulaIndex,
+      darken: darken,
+      darkenHue: darkenHue,
+      hueTurn: hueTurn,
+      hueTurnAmount: hueTurnAmount,
+      hueComplement: hueComplement,
+      colourVision: colourVisionMode,
+      eyeCareWarmth: eyeCareWarmth,
+      eyeCareDim: eyeCareDim,
+      previewNeutral: isComparing,
+    };
+
+    const serialized = JSON.stringify(params);
+    if (lastSentParamsRef.current === serialized) {
+      return;
     }
+
+    const timer = setTimeout(() => {
+      lastSentParamsRef.current = serialized;
+      if (window.electronAPI) {
+        window.electronAPI.applyDisplaySettings(params);
+      }
+    }, 25);
+
+    return () => clearTimeout(timer);
   }, [
     tickedMonitors,
     saturation,
@@ -375,7 +396,7 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
 
       {/* 2. Apply to (Screens Card matching PlexusX screenshot) */}
       <MonitorApplyCard
-        onTickedMonitorsChange={(ticked) => setTickedMonitors(ticked)}
+        onTickedMonitorsChange={handleTickedMonitorsChange}
         onNotify={onNotify}
       />
 

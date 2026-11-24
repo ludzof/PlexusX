@@ -68,7 +68,10 @@ function initEngine() {
     engineProcess = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     engineProcess.stdout.on('data', (data) => {
-      console.log('[Engine stdout]', data.toString().trim());
+      const str = data.toString().trim();
+      if (!str.includes('"action":"apply"')) {
+        console.log('[Engine stdout]', str);
+      }
     });
 
     engineProcess.stderr.on('data', (data) => {

@@ -1,7 +1,10 @@
 import React from 'react';
 import { Minus, Square, X } from 'lucide-react';
+import { useCustomization } from '../context/CustomizationContext';
 
 export const TitleBar: React.FC = () => {
+  const { theme } = useCustomization();
+
   const handleMinimize = () => {
     if (window.electronAPI) {
       window.electronAPI.minimize();
@@ -26,10 +29,26 @@ export const TitleBar: React.FC = () => {
     WebkitAppRegion: 'no-drag',
   } as any;
 
+  const getTitleBarBg = () => {
+    switch (theme) {
+      case 'glass':
+        return 'bg-black/30 backdrop-blur-2xl border-b border-white/10 shadow-[inset_0_-1px_1px_rgba(255,255,255,0.06)]';
+      case 'dark':
+        return 'bg-black border-b border-[#1a1a20]';
+      case 'ash':
+        return 'bg-[#141518] border-b border-[#22242b]';
+      case 'paper':
+        return 'bg-[#101114] border-b border-[#20222a]';
+      case 'slate':
+      default:
+        return 'bg-[#0c0d0f]/90 backdrop-blur-md border-b border-[#1c1f26]';
+    }
+  };
+
   return (
     <div
       style={{ WebkitAppRegion: 'drag' } as any}
-      className="h-9 w-full bg-[#0c0d0f] border-b border-[#1c1f26] flex items-center justify-between px-3.5 select-none z-50 shrink-0"
+      className={`h-9 w-full ${getTitleBarBg()} flex items-center justify-between px-3.5 select-none z-50 shrink-0 transition-colors duration-200`}
     >
       {/* Brand Logo & Title - Exact 8-spoke PlexusX asterisk */}
       <div style={noDragStyle} className="flex items-center space-x-2">

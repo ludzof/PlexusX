@@ -11,6 +11,7 @@ import {
   Lock,
   Settings,
 } from 'lucide-react';
+import { useCustomization } from '../context/CustomizationContext';
 
 export type TabType =
   | 'display'
@@ -29,6 +30,24 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => {
+  const { theme } = useCustomization();
+
+  const getSidebarBg = () => {
+    switch (theme) {
+      case 'glass':
+        return 'bg-black/35 backdrop-blur-2xl border-r border-white/10 shadow-[inset_-1px_0_1px_rgba(255,255,255,0.06)]';
+      case 'dark':
+        return 'bg-black border-r border-[#1a1a20]';
+      case 'ash':
+        return 'bg-[#141518] border-r border-[#22242b]';
+      case 'paper':
+        return 'bg-[#101114] border-r border-[#20222a]';
+      case 'slate':
+      default:
+        return 'bg-[#0c0d0f]/90 backdrop-blur-md border-r border-[#1c1f26]';
+    }
+  };
+
   const navItems = [
     { id: 'display' as TabType, label: 'Display', icon: Contrast },
     { id: 'library' as TabType, label: 'Library', icon: Library },
@@ -46,7 +65,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
   ];
 
   return (
-    <div className="w-[92px] bg-[#0c0d0f] border-r border-[#1c1f26] flex flex-col justify-between items-center py-2 shrink-0 select-none">
+    <div
+      className={`w-[92px] ${getSidebarBg()} flex flex-col justify-between items-center py-2 shrink-0 select-none transition-colors duration-200`}
+    >
       {/* Top Nav Items */}
       <div className="flex flex-col items-center w-full space-y-1">
         {navItems.map((item) => {
@@ -57,10 +78,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`relative w-[82px] py-2 px-1 flex flex-col items-center justify-center rounded-lg transition-all duration-150 cursor-pointer ${
+              className={`relative w-[82px] py-2 px-1 flex flex-col items-center justify-center rounded-xl transition-all duration-150 cursor-pointer ${
                 isActive
-                  ? 'bg-[#181a20] text-white shadow-sm ring-1 ring-white/10'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-[#13151a]'
+                  ? theme === 'glass'
+                    ? 'bg-gradient-to-r from-emerald-500/25 via-white/10 to-transparent border border-emerald-400/50 text-white shadow-[0_0_15px_rgba(0,240,118,0.25)]'
+                    : 'bg-[#181a20] text-white shadow-sm ring-1 ring-white/10'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
               }`}
             >
               {/* Active Indicator Bar on Left */}
