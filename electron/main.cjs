@@ -268,19 +268,21 @@ app.whenReady().then(() => {
   });
 });
 
+let hasCleanedUp = false;
 function cleanupAndResetEngine() {
+  if (hasCleanedUp) return;
+  hasCleanedUp = true;
   try {
     sendEngineCommand({ action: 'reset' });
   } catch (err) {}
   try {
     sendEngineCommand({ action: 'exit' });
   } catch (err) {}
-  try {
-    const { cmd } = getEnginePath();
-    if (cmd && fs.existsSync(cmd) && cmd.endsWith('.exe')) {
-      execSync(`"${cmd}" reset`, { timeout: 2000, stdio: 'ignore' });
-    }
-  } catch (err) {}
+  if (engineProcess) {
+    try {
+      engineProcess.stdin.end();
+    } catch {}
+  }
 }
 
 app.on('before-quit', () => {
