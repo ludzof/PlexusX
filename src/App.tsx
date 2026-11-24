@@ -70,9 +70,6 @@ const AppContent: React.FC = () => {
             backgroundImage: `url(${backdropUrl})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
-            filter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
-            transform: backdropBlur > 0 ? 'scale(1.08)' : 'none',
-            transition: 'filter 0.2s ease, transform 0.2s ease',
           }}
         />
       )}
@@ -80,17 +77,12 @@ const AppContent: React.FC = () => {
       {/* 2. Backdrop Darkness Dimming Overlay */}
       {backdropUrl && (
         <div
-          className="absolute inset-0 pointer-events-none z-0 transition-opacity duration-200"
+          className="absolute inset-0 pointer-events-none z-0"
           style={{
             backgroundColor: '#000000',
             opacity: backdropDim / 100,
           }}
         />
-      )}
-
-      {/* 3. iPhoneOS Liquid Glass Specular Glare & Refraction Layer */}
-      {theme === 'glass' && glassSheen && (
-        <div className="absolute inset-0 pointer-events-none z-0 bg-gradient-to-tr from-emerald-500/[0.03] via-transparent to-white/[0.08]" />
       )}
 
       {/* Frameless Title Bar */}
@@ -103,8 +95,6 @@ const AppContent: React.FC = () => {
         className="flex flex-1 overflow-hidden relative z-10"
         style={{
           opacity: guiOpacity < 100 ? guiOpacity / 100 : 1,
-          backdropFilter: matteBlur ? 'blur(16px)' : 'none',
-          transition: 'opacity 0.15s ease',
         }}
       >
         {/* Left Vertical Navigation */}

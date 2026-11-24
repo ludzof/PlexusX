@@ -760,14 +760,23 @@ namespace PlexusEngine
                 {
                     try
                     {
+                        EnsureOriginalGammaSaved(dev, hdc);
+
                         if (shouldApply)
                         {
                             if (SetDeviceGammaRamp(hdc, ref ramp)) anyOk = true;
                         }
                         else
                         {
-                            // Unticked monitor keeps its own colours!
-                            SetDeviceGammaRamp(hdc, ref identityRamp);
+                            // Unticked monitor keeps its own original calibrated colours!
+                            if (_originalRamps.TryGetValue(dev, out var origRamp))
+                            {
+                                SetDeviceGammaRamp(hdc, ref origRamp);
+                            }
+                            else
+                            {
+                                SetDeviceGammaRamp(hdc, ref identityRamp);
+                            }
                         }
                     }
                     finally
@@ -842,9 +851,23 @@ namespace PlexusEngine
             }
         }
 
+        private static Dictionary<string, RAMP> _originalRamps = new Dictionary<string, RAMP>(StringComparer.OrdinalIgnoreCase);
+
+        private static void EnsureOriginalGammaSaved(string dev, IntPtr hdc)
+        {
+            if (!_originalRamps.ContainsKey(dev))
+            {
+                RAMP r = new RAMP { Red = new ushort[256], Green = new ushort[256], Blue = new ushort[256] };
+                if (GetDeviceGammaRamp(hdc, ref r))
+                {
+                    _originalRamps[dev] = r;
+                }
+            }
+        }
+
         public static bool ResetSafeGamma()
         {
-            RAMP ramp = CreateIdentityRamp();
+            RAMP identityRamp = CreateIdentityRamp();
             List<string> allDevs = GetAttachedDisplayDeviceNames();
             if (allDevs.Count == 0) allDevs.Add(GetPrimaryDeviceName());
 
@@ -856,7 +879,14 @@ namespace PlexusEngine
                 {
                     try
                     {
-                        if (SetDeviceGammaRamp(hdc, ref ramp)) anyOk = true;
+                        if (_originalRamps.TryGetValue(dev, out var origRamp))
+                        {
+                            if (SetDeviceGammaRamp(hdc, ref origRamp)) anyOk = true;
+                        }
+                        else
+                        {
+                            if (SetDeviceGammaRamp(hdc, ref identityRamp)) anyOk = true;
+                        }
                     }
                     finally
                     {
@@ -864,18 +894,16 @@ namespace PlexusEngine
                     }
                 }
             }
-
-            IntPtr hdcFallback = GetDC(IntPtr.Zero);
-            if (hdcFallback != IntPtr.Zero)
-            {
-                SetDeviceGammaRamp(hdcFallback, ref ramp);
-                ReleaseDC(IntPtr.Zero, hdcFallback);
-            }
             return anyOk;
         }
 
         private static bool _nvapiInitialized = false;
         private static List<(uint DisplayId, string GdiName)>? _cachedNvDisplays = null;
+        private static readonly Dictionary<uint, int> _originalDvcMap = new Dictionary<uint, int>
+        {
+            { 2147881089, 87 },
+            { 2147881090, 74 }
+        };
 
         public static void EnsureNvApiInitialized()
         {
@@ -906,6 +934,20 @@ namespace PlexusEngine
                             string gdiName = isPrimary ? "\\\\.\\DISPLAY1" : $"\\\\.\\DISPLAY{nonPrimaryIndex}";
                             if (!isPrimary) nonPrimaryIndex++;
                             list.Add((dId, gdiName));
+
+                            if (!_originalDvcMap.ContainsKey(dId))
+                            {
+                                try
+                                {
+                                    var outputId = (NvAPIWrapper.Native.GPU.OutputId)dId;
+                                    var dvc = NvAPIWrapper.Native.DisplayApi.GetDVCInfoEx(outputId);
+                                    _originalDvcMap[dId] = dvc.CurrentLevel > 0 ? dvc.CurrentLevel : (isPrimary ? 87 : 74);
+                                }
+                                catch
+                                {
+                                    _originalDvcMap[dId] = isPrimary ? 87 : 74;
+                                }
+                            }
                         }
                     }
                     _cachedNvDisplays = list;
@@ -925,7 +967,8 @@ namespace PlexusEngine
                     try
                     {
                         var outputId = (NvAPIWrapper.Native.GPU.OutputId)item.DisplayId;
-                        NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, 50);
+                        int orig = _originalDvcMap.TryGetValue(item.DisplayId, out int val) ? val : (item.GdiName.EndsWith("1") ? 87 : 74);
+                        NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, orig);
                     }
                     catch { }
                 }
@@ -961,7 +1004,8 @@ namespace PlexusEngine
                 {
                     bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 || cmd.targetMonitors.Contains(item.GdiName);
 
-                    int levelToSet = shouldApply ? targetDvc : 50;
+                    int orig = _originalDvcMap.TryGetValue(item.DisplayId, out int val) ? val : (item.GdiName.EndsWith("1") ? 87 : 74);
+                    int levelToSet = shouldApply ? targetDvc : orig;
                     try
                     {
                         var outputId = (NvAPIWrapper.Native.GPU.OutputId)item.DisplayId;

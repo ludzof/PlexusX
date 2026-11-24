@@ -153,7 +153,7 @@ function createMainWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
     if (crosshairOverlayWindow) crosshairOverlayWindow.close();
-    sendEngineCommand({ action: 'reset' });
+    // Keep user's chosen display colors active on desktop even when app window is closed
   });
 }
 

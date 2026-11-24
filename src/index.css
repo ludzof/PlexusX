@@ -55,77 +55,41 @@
 }
 
 /* ========================================================
-   Glass & Custom Backdrop Translucency
-   Allows GIFs / Wallpapers to shine through all panels
+   Custom Backdrop Translucency (Clean & Crisp, No Blurs)
 ======================================================== */
 [data-has-backdrop="true"] .bg-\[\#0c0d0f\],
-[data-theme="glass"] .bg-\[\#0c0d0f\],
 [data-has-backdrop="true"] .bg-\[\#090a0c\],
-[data-theme="glass"] .bg-\[\#090a0c\],
 [data-has-backdrop="true"] .bg-\[\#060709\],
-[data-theme="glass"] .bg-\[\#060709\],
 [data-has-backdrop="true"] .bg-\[\#0b0c0e\],
-[data-theme="glass"] .bg-\[\#0b0c0e\],
 [data-has-backdrop="true"] .bg-\[\#0c0d10\],
-[data-theme="glass"] .bg-\[\#0c0d10\],
-[data-has-backdrop="true"] .bg-\[\#0c0d12\],
-[data-theme="glass"] .bg-\[\#0c0d12\] {
+[data-has-backdrop="true"] .bg-\[\#0c0d12\] {
   background-color: transparent !important;
 }
 
 [data-has-backdrop="true"] .bg-\[\#12151b\],
-[data-theme="glass"] .bg-\[\#12151b\],
 [data-has-backdrop="true"] .bg-\[\#13151a\],
-[data-theme="glass"] .bg-\[\#13151a\],
 [data-has-backdrop="true"] .bg-\[\#14161c\],
-[data-theme="glass"] .bg-\[\#14161c\],
 [data-has-backdrop="true"] .bg-\[\#101217\],
-[data-theme="glass"] .bg-\[\#101217\],
-[data-has-backdrop="true"] .bg-\[\#151821\],
-[data-theme="glass"] .bg-\[\#151821\] {
-  background-color: rgba(18, 21, 27, 0.45) !important;
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  box-shadow: 0 4px 24px -2px rgba(0, 0, 0, 0.4), inset 0 1px 1px 0 rgba(255, 255, 255, 0.12) !important;
+[data-has-backdrop="true"] .bg-\[\#151821\] {
+  background-color: rgba(18, 21, 27, 0.88) !important;
 }
 
 [data-has-backdrop="true"] .bg-\[\#181a20\],
-[data-theme="glass"] .bg-\[\#181a20\],
 [data-has-backdrop="true"] .bg-\[\#181d26\],
-[data-theme="glass"] .bg-\[\#181d26\],
 [data-has-backdrop="true"] .bg-\[\#161a22\],
-[data-theme="glass"] .bg-\[\#161a22\],
 [data-has-backdrop="true"] .bg-\[\#151922\],
-[data-theme="glass"] .bg-\[\#151922\],
 [data-has-backdrop="true"] .bg-\[\#191d26\],
-[data-theme="glass"] .bg-\[\#191d26\],
 [data-has-backdrop="true"] .bg-\[\#141820\],
-[data-theme="glass"] .bg-\[\#141820\],
 [data-has-backdrop="true"] .bg-\[\#202533\],
-[data-theme="glass"] .bg-\[\#202533\],
 [data-has-backdrop="true"] .bg-\[\#252833\],
-[data-theme="glass"] .bg-\[\#252833\],
-[data-has-backdrop="true"] .bg-\[\#181a20\]\/90,
-[data-theme="glass"] .bg-\[\#181a20\]\/90 {
-  background-color: rgba(24, 28, 38, 0.40) !important;
-  backdrop-filter: blur(10px) !important;
-  -webkit-backdrop-filter: blur(10px) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
+[data-has-backdrop="true"] .bg-\[\#181a20\]\/90 {
+  background-color: rgba(24, 28, 38, 0.82) !important;
 }
 
-[data-has-backdrop="true"] aside,
-[data-theme="glass"] aside {
-  background-color: rgba(12, 13, 16, 0.45) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-  border-right-color: rgba(255, 255, 255, 0.10) !important;
+[data-has-backdrop="true"] aside {
+  background-color: rgba(12, 13, 16, 0.90) !important;
 }
 
-[data-has-backdrop="true"] header,
-[data-theme="glass"] header {
-  background-color: rgba(12, 13, 16, 0.40) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+[data-has-backdrop="true"] header {
+  background-color: rgba(12, 13, 16, 0.90) !important;
 }
