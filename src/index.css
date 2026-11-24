@@ -43,6 +43,23 @@
   background: #3b4253;
 }
 
+/* Zero-lag, zero-smoothing instantaneous sliders */
+input[type="range"] {
+  touch-action: none;
+  transition: none !important;
+  animation: none !important;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  transition: none !important;
+  animation: none !important;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  transition: none !important;
+  animation: none !important;
+}
+
 .checkerboard-pattern {
   background-color: #4e4e56;
   background-image:

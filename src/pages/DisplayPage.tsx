@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   RotateCcw,
   Check,
@@ -154,29 +154,22 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [showWarning, setShowWarning] = useState<boolean>(false);
   const [showQuickModal, setShowQuickModal] = useState<boolean>(false);
-  const [shareCode, setShareCode] = useState<string>('PX-56563M3M3M565656227P3M3M3M22225T7Z5622D');
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [copiedSetup, setCopiedSetup] = useState<boolean>(false);
   const [showPhoneModal, setShowPhoneModal] = useState<boolean>(false);
+  const [pastedCode, setPastedCode] = useState<string>('');
 
-  // Generate dynamic share code string
-  const generateCode = useCallback(() => {
-    // Generate a pseudo PX- code based on values
+  // Generate dynamic share code string (calculated synchronously with zero extra render pass)
+  const shareCode = useMemo(() => {
     const s = Math.round(saturation).toString(16).toUpperCase();
     const v = Math.round(vibrance).toString(16).toUpperCase();
     const g = Math.round(gamma * 100).toString(16).toUpperCase();
     return `PX-${s}${v}3M${g}3M565656227P3M3M3M22225T7Z5622D`;
   }, [saturation, vibrance, gamma]);
 
-  useEffect(() => {
-    setShareCode(generateCode());
-  }, [generateCode]);
-
   const lastSentParamsRef = useRef<string>('');
-  const rafIdRef = useRef<number | null>(null);
-  const pendingParamsRef = useRef<any>(null);
 
-  // Live apply to C# engine: instant hardware response synchronized to frame refresh rate (zero queue, zero mouse lag)
+  // Live apply to C# engine: INSTANT 100% DIRECT DISPATCH with ZERO smoothing, ZERO delay, ZERO RAF buffering
   useEffect(() => {
     const params = {
       targetMonitors: tickedMonitors,
@@ -204,28 +197,13 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
       previewNeutral: isComparing,
     };
 
-    pendingParamsRef.current = params;
+    const serialized = JSON.stringify(params);
+    if (lastSentParamsRef.current === serialized) return;
+    lastSentParamsRef.current = serialized;
 
-    if (rafIdRef.current === null) {
-      rafIdRef.current = requestAnimationFrame(() => {
-        rafIdRef.current = null;
-        const current = pendingParamsRef.current;
-        if (!current) return;
-        const serialized = JSON.stringify(current);
-        if (lastSentParamsRef.current === serialized) return;
-        lastSentParamsRef.current = serialized;
-        if (window.electronAPI) {
-          window.electronAPI.applyDisplaySettings(current);
-        }
-      });
+    if (window.electronAPI) {
+      window.electronAPI.applyDisplaySettings(params);
     }
-
-    return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-    };
   }, [
     tickedMonitors,
     saturation,
@@ -1037,8 +1015,8 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
         <div className="flex items-center space-x-2">
           <input
             type="text"
-            value={shareCode}
-            onChange={(e) => setShareCode(e.target.value)}
+            value={pastedCode || shareCode}
+            onChange={(e) => setPastedCode(e.target.value)}
             className="flex-1 bg-[#171a23] border border-[#262c3b] rounded-lg px-3 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-emerald-500/60 select-all"
           />
           <button

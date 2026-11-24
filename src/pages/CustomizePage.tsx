@@ -459,7 +459,7 @@ export const CustomizePage: React.FC<CustomizePageProps> = ({ onNotify }) => {
                 className="w-full h-1.5 bg-[#20242e] rounded-lg appearance-none cursor-pointer accent-emerald-400"
               />
               <p className="text-[10px] text-gray-500">
-                Smooths GIF pixels for an ambient glowing background light.
+                Diffuses GIF pixels for an ambient glowing background light.
               </p>
             </div>
 
