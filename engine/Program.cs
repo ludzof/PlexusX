@@ -398,7 +398,9 @@ namespace PlexusEngine
                         }
                         else
                         {
+                            List<string> allDevs = GetAttachedDisplayDeviceNames();
                             bool noneTicked = cmd.targetMonitors != null && cmd.targetMonitors.Count == 0;
+                            bool someUnticked = cmd.targetMonitors != null && cmd.targetMonitors.Count > 0 && allDevs.Count > 0 && cmd.targetMonitors.Count < allDevs.Count;
 
                             if (noneTicked)
                             {
@@ -407,9 +409,17 @@ namespace PlexusEngine
                                 ResetNvApiVibrance();
                                 Console.WriteLine("{\"status\":\"ok\",\"action\":\"apply\",\"paused\":true}");
                             }
+                            else if (someUnticked)
+                            {
+                                // Multi-monitor isolation: keep whole-desktop matrix paused at identity so unticked monitors stay normal!
+                                ApplyMatrix(IdentityMatrix);
+                                bool gammaOk = ApplyExactToneCurve(cmd);
+                                bool nvapiOk = ApplyNvApiVibrance(cmd);
+                                Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":false,\"gamma\":{gammaOk.ToString().ToLower()},\"nvapi\":{nvapiOk.ToString().ToLower()},\"unticked\":true}}");
+                            }
                             else
                             {
-                                // Apply settings whenever any monitor is selected!
+                                // All monitors ticked -> Full matrix + gamma + hardware vibrance
                                 var matrix = BuildExactPlexusMatrix(cmd);
                                 bool matrixOk = ApplyMatrix(matrix);
                                 bool gammaOk = ApplyExactToneCurve(cmd);
@@ -759,7 +769,8 @@ namespace PlexusEngine
                 }
             }
 
-            if (!anyOk)
+            bool isPartial = cmd.targetMonitors != null && cmd.targetMonitors.Count > 0 && allDevs.Count > 0 && cmd.targetMonitors.Count < allDevs.Count;
+            if (!anyOk && !isPartial)
             {
                 IntPtr hdcFallback = GetDC(IntPtr.Zero);
                 if (hdcFallback != IntPtr.Zero)
@@ -895,9 +906,21 @@ namespace PlexusEngine
                 }
                 catch { }
 
-                // Vibrance slider is 0.0 to 3.5 (1.0 = 100% normal)
-                // In NVIDIA DVC: 0 to 100, where 50 is default/normal (100%), 0 is grayscale, 100 is 200%+
-                int targetDvc = Math.Clamp((int)Math.Round(cmd.vibrance * 50.0), 0, 100);
+                // Combine Saturation and Vibrance into hardware DVC:
+                // 100% saturation (1.0) * 100% vibrance (1.0) = 1.0 -> DVC 50 (neutral normal)
+                // 200% saturation (2.0) -> DVC 100 (max saturation)
+                // 0% saturation (0.0) -> DVC 0 (monochrome)
+                double totalSat = (cmd.saturation <= 0.0 ? 1.0 : cmd.saturation) * (cmd.vibrance <= 0.0 ? 1.0 : cmd.vibrance);
+                int targetDvc = 50;
+                if (totalSat >= 1.0)
+                {
+                    targetDvc = (int)Math.Round(50.0 + (totalSat - 1.0) * 50.0);
+                }
+                else
+                {
+                    targetDvc = (int)Math.Round(totalSat * 50.0);
+                }
+                targetDvc = Math.Clamp(targetDvc, 0, 100);
 
                 int nonPrimaryIndex = 2;
                 bool anySet = false;

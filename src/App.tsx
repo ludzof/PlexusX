@@ -56,7 +56,11 @@ const AppContent: React.FC = () => {
 
   return (
     <div
-      className={`flex flex-col h-screen w-screen overflow-hidden font-sans select-none relative ${getThemeBgClass()}`}
+      data-has-backdrop={Boolean(backdropUrl)}
+      data-theme={theme}
+      className={`flex flex-col h-screen w-screen overflow-hidden font-sans select-none relative ${
+        backdropUrl ? 'bg-transparent text-gray-100' : getThemeBgClass()
+      }`}
     >
       {/* 1. Background Wallpaper / Animated GIF Layer */}
       {backdropUrl && (
