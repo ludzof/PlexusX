@@ -173,10 +173,8 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
   }, [generateCode]);
 
   const lastSentParamsRef = useRef<string>('');
-  const lastSentTimeRef = useRef<number>(0);
-  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Live apply to C# engine through Electron API (ultra-smooth 60fps trailing throttle)
+  // Live apply to C# engine through Electron API: INSTANT direct dispatch with zero delay
   useEffect(() => {
     const params = {
       targetMonitors: tickedMonitors,
@@ -209,31 +207,9 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
       return;
     }
 
-    const now = performance.now();
-    const elapsed = now - lastSentTimeRef.current;
-    const THROTTLE_INTERVAL = 16; // 60 FPS update rate
-
-    const dispatch = () => {
-      lastSentTimeRef.current = performance.now();
-      lastSentParamsRef.current = serialized;
-      if (window.electronAPI) {
-        window.electronAPI.applyDisplaySettings(params);
-      }
-    };
-
-    if (elapsed >= THROTTLE_INTERVAL) {
-      if (throttleTimerRef.current) {
-        clearTimeout(throttleTimerRef.current);
-        throttleTimerRef.current = null;
-      }
-      dispatch();
-    } else {
-      if (!throttleTimerRef.current) {
-        throttleTimerRef.current = setTimeout(() => {
-          dispatch();
-          throttleTimerRef.current = null;
-        }, THROTTLE_INTERVAL - elapsed);
-      }
+    lastSentParamsRef.current = serialized;
+    if (window.electronAPI) {
+      window.electronAPI.applyDisplaySettings(params);
     }
   }, [
     tickedMonitors,
