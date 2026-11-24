@@ -168,8 +168,12 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
   }, [saturation, vibrance, gamma]);
 
   const lastSentParamsRef = useRef<string>('');
+  const isDispatchingRef = useRef<boolean>(false);
+  const nextParamsRef = useRef<any>(null);
 
-  // Live apply to C# engine: INSTANT 100% DIRECT DISPATCH with ZERO smoothing, ZERO delay, ZERO RAF buffering
+  // Live apply to C# engine: non-blocking single-flight queue coalescer.
+  // When you click: applies instantly.
+  // When you drag: streams at maximum GPU speed without ever lagging or queuing up.
   useEffect(() => {
     const params = {
       targetMonitors: tickedMonitors,
@@ -201,8 +205,22 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
     if (lastSentParamsRef.current === serialized) return;
     lastSentParamsRef.current = serialized;
 
-    if (window.electronAPI) {
-      window.electronAPI.applyDisplaySettings(params);
+    nextParamsRef.current = params;
+
+    if (!isDispatchingRef.current) {
+      isDispatchingRef.current = true;
+      (async () => {
+        while (nextParamsRef.current) {
+          const toSend = nextParamsRef.current;
+          nextParamsRef.current = null;
+          if (window.electronAPI) {
+            try {
+              await window.electronAPI.applyDisplaySettings(toSend);
+            } catch {}
+          }
+        }
+        isDispatchingRef.current = false;
+      })();
     }
   }, [
     tickedMonitors,

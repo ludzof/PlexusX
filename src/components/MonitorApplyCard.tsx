@@ -17,7 +17,7 @@ interface DisplayTileItem {
   ticked: boolean;
 }
 
-export const MonitorApplyCard: React.FC<MonitorApplyCardProps> = ({
+const MonitorApplyCardComponent: React.FC<MonitorApplyCardProps> = ({
   onTickedMonitorsChange,
   onNotify,
 }) => {
@@ -258,3 +258,5 @@ export const MonitorApplyCard: React.FC<MonitorApplyCardProps> = ({
     </div>
   );
 };
+
+export const MonitorApplyCard = React.memo(MonitorApplyCardComponent);

@@ -12,7 +12,7 @@ interface ColorWheelProps {
   caption: string;
 }
 
-export const ColorWheel: React.FC<ColorWheelProps> = ({
+const ColorWheelComponent: React.FC<ColorWheelProps> = ({
   title,
   mode,
   value,
@@ -188,3 +188,5 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
     </div>
   );
 };
+
+export const ColorWheel = React.memo(ColorWheelComponent);

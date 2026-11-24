@@ -400,6 +400,26 @@ namespace PlexusEngine
 
                     if (cmd.action == "apply")
                     {
+                        // Hardware queue coalescing: if more apply commands are buffered in stdin, fast-forward to the newest!
+                        while (Console.In.Peek() >= 0)
+                        {
+                            string? nextLine = Console.ReadLine();
+                            if (nextLine != null)
+                            {
+                                try
+                                {
+                                    var nextCmd = JsonSerializer.Deserialize<EngineCommand>(nextLine.Trim());
+                                    if (nextCmd != null && nextCmd.action == "apply")
+                                    {
+                                        cmd = nextCmd;
+                                        continue;
+                                    }
+                                }
+                                catch { }
+                            }
+                            break;
+                        }
+
                         if (cmd.previewNeutral)
                         {
                             ApplyMatrix(IdentityMatrix);
@@ -409,7 +429,6 @@ namespace PlexusEngine
                         }
                         else
                         {
-                            List<string> allDevs = GetAttachedDisplayDeviceNames();
                             bool noneTicked = cmd.targetMonitors != null && cmd.targetMonitors.Count == 0;
 
                             if (noneTicked)
