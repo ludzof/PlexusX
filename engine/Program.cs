@@ -694,8 +694,16 @@ namespace PlexusEngine
         // ==========================================
         // Exact ToneCurve Ramp Calculation
         // ==========================================
+        private static string _lastAppliedToneParams = "";
         public static bool ApplyExactToneCurve(EngineCommand cmd)
         {
+            string toneKey = $"{cmd.gamma:F3}_{cmd.brightness:F3}_{cmd.contrast:F3}_{cmd.temperature:F1}_{cmd.highlights}_{cmd.shadows}_{cmd.blacks}_{cmd.whites}_{cmd.shadowTint}_{cmd.highlightTint}_{string.Join(",", cmd.targetMonitors ?? new List<string>())}";
+            if (toneKey == _lastAppliedToneParams)
+            {
+                return true; // Unchanged: avoid costly GDI ramp recomputations
+            }
+            _lastAppliedToneParams = toneKey;
+
             double resolvedGamma = cmd.gamma <= 0.0 ? 1.0 : cmd.gamma;
             double invGamma = 1.0 / resolvedGamma;
             double sShadows = Math.Clamp(cmd.shadows, -100, 100) / 100.0;
@@ -866,26 +874,60 @@ namespace PlexusEngine
             return anyOk;
         }
 
-        public static void ResetNvApiVibrance()
+        private static bool _nvapiInitialized = false;
+        private static List<(uint DisplayId, string GdiName)>? _cachedNvDisplays = null;
+
+        public static void EnsureNvApiInitialized()
         {
+            if (_nvapiInitialized && _cachedNvDisplays != null) return;
             try
             {
                 NvAPIWrapper.NVIDIA.Initialize();
+                _nvapiInitialized = true;
+
+                uint primaryId = 0;
+                try
+                {
+                    primaryId = NvAPIWrapper.Display.DisplayDevice.GetGDIPrimaryDisplayDevice().DisplayId;
+                }
+                catch { }
+
                 var configs = NvAPIWrapper.Display.PathInfo.GetDisplaysConfig();
                 if (configs != null)
                 {
+                    var list = new List<(uint DisplayId, string GdiName)>();
+                    int nonPrimaryIndex = 2;
                     foreach (var c in configs)
                     {
                         foreach (var t in c.TargetsInfo)
                         {
-                            try
-                            {
-                                var outputId = (NvAPIWrapper.Native.GPU.OutputId)t.DisplayDevice.DisplayId;
-                                NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, 50);
-                            }
-                            catch { }
+                            uint dId = t.DisplayDevice.DisplayId;
+                            bool isPrimary = (primaryId != 0 && dId == primaryId);
+                            string gdiName = isPrimary ? "\\\\.\\DISPLAY1" : $"\\\\.\\DISPLAY{nonPrimaryIndex}";
+                            if (!isPrimary) nonPrimaryIndex++;
+                            list.Add((dId, gdiName));
                         }
                     }
+                    _cachedNvDisplays = list;
+                }
+            }
+            catch { }
+        }
+
+        public static void ResetNvApiVibrance()
+        {
+            try
+            {
+                EnsureNvApiInitialized();
+                if (_cachedNvDisplays == null) return;
+                foreach (var item in _cachedNvDisplays)
+                {
+                    try
+                    {
+                        var outputId = (NvAPIWrapper.Native.GPU.OutputId)item.DisplayId;
+                        NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, 50);
+                    }
+                    catch { }
                 }
             }
             catch { }
@@ -895,16 +937,8 @@ namespace PlexusEngine
         {
             try
             {
-                NvAPIWrapper.NVIDIA.Initialize();
-                var configs = NvAPIWrapper.Display.PathInfo.GetDisplaysConfig();
-                if (configs == null || configs.Length == 0) return false;
-
-                uint primaryId = 0;
-                try
-                {
-                    primaryId = NvAPIWrapper.Display.DisplayDevice.GetGDIPrimaryDisplayDevice().DisplayId;
-                }
-                catch { }
+                EnsureNvApiInitialized();
+                if (_cachedNvDisplays == null || _cachedNvDisplays.Count == 0) return false;
 
                 // Combine Saturation and Vibrance into hardware DVC:
                 // 100% saturation (1.0) * 100% vibrance (1.0) = 1.0 -> DVC 50 (neutral normal)
@@ -922,28 +956,19 @@ namespace PlexusEngine
                 }
                 targetDvc = Math.Clamp(targetDvc, 0, 100);
 
-                int nonPrimaryIndex = 2;
                 bool anySet = false;
-                foreach (var c in configs)
+                foreach (var item in _cachedNvDisplays)
                 {
-                    foreach (var t in c.TargetsInfo)
+                    bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 || cmd.targetMonitors.Contains(item.GdiName);
+
+                    int levelToSet = shouldApply ? targetDvc : 50;
+                    try
                     {
-                        uint dId = t.DisplayDevice.DisplayId;
-                        bool isPrimary = (primaryId != 0 && dId == primaryId);
-                        string gdiName = isPrimary ? "\\\\.\\DISPLAY1" : $"\\\\.\\DISPLAY{nonPrimaryIndex}";
-                        if (!isPrimary) nonPrimaryIndex++;
-
-                        bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 || cmd.targetMonitors.Contains(gdiName);
-
-                        int levelToSet = shouldApply ? targetDvc : 50;
-                        try
-                        {
-                            var outputId = (NvAPIWrapper.Native.GPU.OutputId)dId;
-                            NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, levelToSet);
-                            anySet = true;
-                        }
-                        catch { }
+                        var outputId = (NvAPIWrapper.Native.GPU.OutputId)item.DisplayId;
+                        NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, levelToSet);
+                        anySet = true;
                     }
+                    catch { }
                 }
                 return anySet;
             }
@@ -1319,8 +1344,10 @@ namespace PlexusEngine
             return ramp;
         }
 
+        private static List<string>? _cachedAttachedDisplays = null;
         public static List<string> GetAttachedDisplayDeviceNames()
         {
+            if (_cachedAttachedDisplays != null) return _cachedAttachedDisplays;
             var list = new List<string>();
             DISPLAY_DEVICE d = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
             for (int i = 0; EnumDisplayDevices(null, i, ref d, 0); i++)
@@ -1335,6 +1362,7 @@ namespace PlexusEngine
                 }
                 d = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
             }
+            _cachedAttachedDisplays = list;
             return list;
         }
 
