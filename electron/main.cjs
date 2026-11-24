@@ -467,9 +467,13 @@ ipcMain.handle('get-monitors-list', () => {
 });
 
 ipcMain.handle('apply-display-settings', (event, params) => {
+  const targetMonitors = (params && Array.isArray(params.targetMonitors) && params.targetMonitors.length > 0)
+    ? params.targetMonitors
+    : ['\\\\.\\DISPLAY1', '\\\\.\\DISPLAY2'];
+
   sendEngineCommand({
     action: 'apply',
-    targetMonitors: params.targetMonitors || [],
+    targetMonitors,
     saturation: params.saturation ?? 1.0,
     vibrance: params.vibrance ?? 1.0,
     brightness: params.brightness ?? 1.0,
@@ -495,6 +499,7 @@ ipcMain.handle('apply-display-settings', (event, params) => {
     darkBoost: params.darkBoost ?? 0.0,
     blackLevel: params.blackLevel ?? 0,
     colorMode: params.colorMode ?? 'green',
+    invertColors: !!params.invertColors,
   });
   return { success: true };
 });

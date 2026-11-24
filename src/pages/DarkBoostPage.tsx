@@ -51,12 +51,25 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
     );
   };
 
+  // Target monitors helper for multi-monitor support
+  const getTargetMonitors = () => {
+    try {
+      const saved = localStorage.getItem('plexus_ticked_monitors');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr) && arr.length > 0) return arr;
+      }
+    } catch {}
+    return ['\\\\.\\DISPLAY1', '\\\\.\\DISPLAY2'];
+  };
+
+  // Invert Colours for NVG (Thermal White-Hot Night Vision)
+  const [invertColors, setInvertColors] = useState<boolean>(false);
+
   // Hold to zoom settings matching screenshot 2
   const [holdToZoom, setHoldToZoom] = useState<boolean>(true);
   const [zoomKey, setZoomKey] = useState<string>('Mouse 5');
   const [zoomLevel, setZoomLevel] = useState<number>(2.0);
-  const [smooth, setSmooth] = useState<boolean>(false);
-  const [smoothEdges, setSmoothEdges] = useState<boolean>(false);
   const [showKeyPicker, setShowKeyPicker] = useState<boolean>(false);
   const [isZooming, setIsZooming] = useState<boolean>(false);
 
@@ -78,7 +91,8 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
     height: number,
     boost: boolean,
     boostStrength: number,
-    mode: string
+    mode: string,
+    invert: boolean = false
   ) => {
     ctx.clearRect(0, 0, width, height);
 
@@ -246,46 +260,62 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(slx - 3, sly - 3, 6, 6);
     }
+
+    // Invert colours on preview canvas if active
+    if (boost && invert) {
+      try {
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          d[i] = 255 - d[i];
+          d[i + 1] = 255 - d[i + 1];
+          d[i + 2] = 255 - d[i + 2];
+        }
+        ctx.putImageData(imgData, 0, 0);
+      } catch {}
+    }
   };
 
   // Render previews
   useEffect(() => {
     if (leftCanvasRef.current) {
       const ctx = leftCanvasRef.current.getContext('2d');
-      if (ctx) drawScene(ctx, 360, 180, false, 0, 'green');
+      if (ctx) drawScene(ctx, 360, 180, false, 0, 'green', false);
     }
     if (rightCanvasRef.current) {
       const ctx = rightCanvasRef.current.getContext('2d');
-      if (ctx) drawScene(ctx, 360, 180, previewToggle, strength, colorMode);
+      if (ctx) drawScene(ctx, 360, 180, previewToggle, strength, colorMode, invertColors);
     }
-  }, [strength, colorMode, previewToggle]);
+  }, [strength, colorMode, previewToggle, invertColors]);
 
   // LIVE MONITOR DISPLAY SYNC: Whenever active on monitor, update display instantly
   useEffect(() => {
     if (isActiveOnMonitor && window.electronAPI) {
       window.electronAPI.applyDisplaySettings({
+        targetMonitors: getTargetMonitors(),
         gamma: 1.25,
         brightness: 1.15,
         contrast: 1.1,
         darkBoost: strength,
         colorMode: colorMode,
         blackLevel: blackLevel,
+        invertColors: invertColors,
       });
     }
-  }, [isActiveOnMonitor, strength, colorMode, blackLevel]);
+  }, [isActiveOnMonitor, strength, colorMode, blackLevel, invertColors]);
 
-  // LIVE ZOOM CONFIG SYNC: Keep C# engine synchronized with zoom settings
+  // LIVE ZOOM CONFIG SYNC: Instant raw zoom without lag or smoothing
   useEffect(() => {
     if (window.electronAPI) {
       window.electronAPI.setZoomConfig({
         holdToZoom,
         zoomKey,
         zoomLevel,
-        smooth,
-        smoothEdges,
+        smooth: false,
+        smoothEdges: false,
       });
     }
-  }, [holdToZoom, zoomKey, zoomLevel, smooth, smoothEdges]);
+  }, [holdToZoom, zoomKey, zoomLevel]);
 
   // Register hotkey listeners
   useEffect(() => {
@@ -296,14 +326,16 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
         const next = !prev;
         if (next) {
           window.electronAPI?.applyDisplaySettings({
+            targetMonitors: getTargetMonitors(),
             gamma: 1.25,
             brightness: 1.15,
             contrast: 1.1,
             darkBoost: strength,
             colorMode: colorMode,
             blackLevel: blackLevel,
+            invertColors: invertColors,
           });
-          onNotify?.(`Dark Boost toggled ON (${colorMode.toUpperCase()})`);
+          onNotify?.(`Dark Boost toggled ON (${colorMode.toUpperCase()}${invertColors ? ' + INVERT' : ''})`);
         } else {
           window.electronAPI?.resetDisplaySettings();
           onNotify?.('Dark Boost toggled OFF');
@@ -316,7 +348,7 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
       setIsZooming((prev) => {
         const next = !prev;
         if (next) {
-          window.electronAPI?.triggerZoom(zoomLevel, smoothEdges);
+          window.electronAPI?.triggerZoom(zoomLevel, false);
           onNotify?.(`Zoom engaged (${zoomLevel.toFixed(1)}x)`);
         } else {
           window.electronAPI?.releaseZoom();
@@ -330,7 +362,7 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
       unregDark?.();
       unregZoom?.();
     };
-  }, [strength, colorMode, blackLevel, zoomLevel, smoothEdges]);
+  }, [strength, colorMode, blackLevel, zoomLevel, invertColors]);
 
   // Primary toggle button
   const handleToggleMonitorBoost = async () => {
@@ -340,14 +372,16 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
     if (window.electronAPI) {
       if (nextState) {
         await window.electronAPI.applyDisplaySettings({
+          targetMonitors: getTargetMonitors(),
           gamma: 1.25,
           brightness: 1.15,
           contrast: 1.1,
           darkBoost: strength,
           colorMode: colorMode,
           blackLevel: blackLevel,
+          invertColors: invertColors,
         });
-        onNotify?.(`Dark Boost (${colorMode.toUpperCase()}) applied to monitor!`);
+        onNotify?.(`Dark Boost (${colorMode.toUpperCase()}${invertColors ? ' + INVERT' : ''}) applied to monitor!`);
       } else {
         await window.electronAPI.resetDisplaySettings();
         onNotify?.('Display restored to standard profile.');
@@ -357,10 +391,28 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
     }
   };
 
+  const handleToggleInvertColors = async () => {
+    const next = !invertColors;
+    setInvertColors(next);
+    if (isActiveOnMonitor && window.electronAPI) {
+      await window.electronAPI.applyDisplaySettings({
+        targetMonitors: getTargetMonitors(),
+        gamma: 1.25,
+        brightness: 1.15,
+        contrast: 1.1,
+        darkBoost: strength,
+        colorMode: colorMode,
+        blackLevel: blackLevel,
+        invertColors: next,
+      });
+    }
+    onNotify?.(`Invert Colours (Thermal NVG): ${next ? 'ON' : 'OFF'}`);
+  };
+
   const handleStartZoom = async () => {
     setIsZooming(true);
     if (window.electronAPI) {
-      await window.electronAPI.triggerZoom(zoomLevel, smoothEdges);
+      await window.electronAPI.triggerZoom(zoomLevel, false);
     }
   };
 
@@ -659,6 +711,35 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
               {colors.find((c) => c.id === colorMode)?.desc}
             </p>
           </div>
+
+          {/* Invert Colours for NVG (Thermal White-Hot Night Vision) */}
+          <div className="col-span-2 pt-4 border-t border-[#1f232c] flex items-center justify-between">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-semibold text-white">Invert Colours (Thermal NVG)</span>
+                {invertColors && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    White-Hot Active
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                Inverts screen luminance so dark shadows & player silhouettes glow as bright white thermal heat signatures.
+              </p>
+            </div>
+            <button
+              onClick={handleToggleInvertColors}
+              className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out shrink-0 ${
+                invertColors ? 'bg-amber-400' : 'bg-[#252833]'
+              }`}
+            >
+              <div
+                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
+                  invertColors ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -714,51 +795,10 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
           </div>
         </div>
 
-        {/* Row 4: Smooth toggle */}
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-xs text-gray-300 font-medium">Smooth</span>
-          <button
-            onClick={() => {
-              const next = !smooth;
-              setSmooth(next);
-              onNotify?.(`Smooth magnification: ${next ? 'ON' : 'OFF'}`);
-            }}
-            className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${
-              smooth ? 'bg-emerald-500' : 'bg-[#252833]'
-            }`}
-          >
-            <div
-              className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
-                smooth ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
-        </div>
-
-        {/* Row 5: Smooth edges toggle */}
-        <div className="flex items-center justify-between pt-1">
-          <div>
-            <span className="text-xs text-gray-300 font-medium block">Smooth edges</span>
-            <span className="text-[11px] text-gray-500 mt-0.5 block">
-              Off: sharp pixels. On: softer, a little blurry.
-            </span>
-          </div>
-          <button
-            onClick={() => {
-              const next = !smoothEdges;
-              setSmoothEdges(next);
-              onNotify?.(`Smooth edges: ${next ? 'ON' : 'OFF'}`);
-            }}
-            className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200 ease-in-out ${
-              smoothEdges ? 'bg-emerald-500' : 'bg-[#252833]'
-            }`}
-          >
-            <div
-              className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ease-in-out ${
-                smoothEdges ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-          </button>
+        {/* Instant response indicator - zero blur, zero smoothing */}
+        <div className="flex items-center justify-between pt-1 text-xs">
+          <span className="text-gray-300 font-medium">Render Mode</span>
+          <span className="font-semibold text-emerald-400 font-mono">100% Instant · Sharp Raw Pixels</span>
         </div>
 
         {/* Notes matching PlexusX screenshot */}

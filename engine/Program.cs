@@ -69,6 +69,7 @@ namespace PlexusEngine
         public double darkBoost { get; set; } = 0.0;
         public int blackLevel { get; set; } = 0;
         public string colorMode { get; set; } = "green";
+        public bool invertColors { get; set; } = false;
         public bool holdToZoom { get; set; } = false;
         public string zoomKey { get; set; } = "Mouse 5";
         public float zoomLevel { get; set; } = 2.0f;
@@ -410,7 +411,6 @@ namespace PlexusEngine
                         {
                             List<string> allDevs = GetAttachedDisplayDeviceNames();
                             bool noneTicked = cmd.targetMonitors != null && cmd.targetMonitors.Count == 0;
-                            bool someUnticked = cmd.targetMonitors != null && cmd.targetMonitors.Count > 0 && allDevs.Count > 0 && cmd.targetMonitors.Count < allDevs.Count;
 
                             if (noneTicked)
                             {
@@ -419,17 +419,8 @@ namespace PlexusEngine
                                 ResetNvApiVibrance();
                                 Console.WriteLine("{\"status\":\"ok\",\"action\":\"apply\",\"paused\":true}");
                             }
-                            else if (someUnticked)
-                            {
-                                // Multi-monitor isolation: keep whole-desktop matrix paused at identity so unticked monitors stay normal!
-                                ApplyMatrix(IdentityMatrix);
-                                bool gammaOk = ApplyExactToneCurve(cmd);
-                                bool nvapiOk = ApplyNvApiVibrance(cmd);
-                                Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":false,\"gamma\":{gammaOk.ToString().ToLower()},\"nvapi\":{nvapiOk.ToString().ToLower()},\"unticked\":true}}");
-                            }
                             else
                             {
-                                // All monitors ticked -> Full matrix + gamma + hardware vibrance
                                 var matrix = BuildExactPlexusMatrix(cmd);
                                 bool matrixOk = ApplyMatrix(matrix);
                                 bool gammaOk = ApplyExactToneCurve(cmd);
@@ -470,6 +461,7 @@ namespace PlexusEngine
                         _smooth = cmd.smooth;
                         _smoothEdges = cmd.smoothEdges;
                         try { MagSetFullscreenUseBitmapSmoothing(_smoothEdges); } catch { }
+                        UpdateMouseHook();
                         Console.WriteLine("{\"status\":\"ok\",\"action\":\"zoom_config_set\"}");
                     }
                     else if (cmd.action == "trigger-zoom")
@@ -540,7 +532,8 @@ namespace PlexusEngine
             using var curModule = curProcess.MainModule;
             IntPtr hMod = GetModuleHandle(curModule?.ModuleName);
 
-            _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, hMod, 0);
+            // NEVER install WH_MOUSE_LL unconditionally! It blocks mouse movement at 1000Hz causing cursor stutter.
+            // Only hook keyboard for zoom shortcut; mouse hook is loaded on-demand only when hold-to-zoom requires it.
             _kbdHook = SetWindowsHookEx(WH_KEYBOARD_LL, _kbdProc, hMod, 0);
 
             while (GetMessage(out MSG msg, IntPtr.Zero, 0, 0) != 0)
@@ -549,8 +542,35 @@ namespace PlexusEngine
                 DispatchMessage(ref msg);
             }
 
-            if (_mouseHook != IntPtr.Zero) UnhookWindowsHookEx(_mouseHook);
-            if (_kbdHook != IntPtr.Zero) UnhookWindowsHookEx(_kbdHook);
+            if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
+            if (_kbdHook != IntPtr.Zero) { UnhookWindowsHookEx(_kbdHook); _kbdHook = IntPtr.Zero; }
+        }
+
+        private static void UpdateMouseHook()
+        {
+            try
+            {
+                bool needsMouseHook = _holdToZoom && (
+                    _zoomKey.Equals("Mouse 5", StringComparison.OrdinalIgnoreCase) ||
+                    _zoomKey.Equals("Mouse 4", StringComparison.OrdinalIgnoreCase) ||
+                    _zoomKey.Equals("Right Click", StringComparison.OrdinalIgnoreCase) ||
+                    _zoomKey.Equals("Middle Click", StringComparison.OrdinalIgnoreCase)
+                );
+
+                if (needsMouseHook && _mouseHook == IntPtr.Zero && _mouseProc != null)
+                {
+                    using var curProcess = Process.GetCurrentProcess();
+                    using var curModule = curProcess.MainModule;
+                    IntPtr hMod = GetModuleHandle(curModule?.ModuleName);
+                    _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, hMod, 0);
+                }
+                else if (!needsMouseHook && _mouseHook != IntPtr.Zero)
+                {
+                    UnhookWindowsHookEx(_mouseHook);
+                    _mouseHook = IntPtr.Zero;
+                }
+            }
+            catch { }
         }
 
         private static IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
@@ -673,18 +693,29 @@ namespace PlexusEngine
 
         public static void ResetAll()
         {
+            _lastAppliedMatrix = null;
+            _lastAppliedDvc.Clear();
+            _lastAppliedToneParams = "";
             ResetZoom();
             ApplyMatrix(IdentityMatrix);
             ResetSafeGamma();
             ResetNvApiVibrance();
+            if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
         }
 
+        private static float[]? _lastAppliedMatrix = null;
         public static bool ApplyMatrix(float[] matrix)
         {
             if (!_magInitialized)
             {
                 try { _magInitialized = MagInitialize(); } catch { return false; }
             }
+
+            if (_lastAppliedMatrix != null && MatrixEquals(_lastAppliedMatrix, matrix))
+            {
+                return true; // Already applied to DWM: skip expensive composition flush!
+            }
+            _lastAppliedMatrix = (float[])matrix.Clone();
 
             MAGCOLOREFFECT effect = new MAGCOLOREFFECT
             {
@@ -699,6 +730,16 @@ namespace PlexusEngine
             {
                 return false;
             }
+        }
+
+        private static bool MatrixEquals(float[] a, float[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (Math.Abs(a[i] - b[i]) > 0.0001f) return false;
+            }
+            return true;
         }
 
         // ==========================================
@@ -965,6 +1006,7 @@ namespace PlexusEngine
             { 2147881089, 87 },
             { 2147881090, 74 }
         };
+        private static readonly Dictionary<uint, int> _lastAppliedDvc = new Dictionary<uint, int>();
 
         public static void EnsureNvApiInitialized()
         {
@@ -1088,6 +1130,12 @@ namespace PlexusEngine
                     try
                     {
                         var outputId = (NvAPIWrapper.Native.GPU.OutputId)item.DisplayId;
+                        if (_lastAppliedDvc.TryGetValue(item.DisplayId, out int curDvc) && curDvc == levelToSet)
+                        {
+                            anySet = true;
+                            continue;
+                        }
+                        _lastAppliedDvc[item.DisplayId] = levelToSet;
                         NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, levelToSet);
                         anySet = true;
                     }
@@ -1224,6 +1272,20 @@ namespace PlexusEngine
             {
                 float[] dbMatrix = DarkBoostLookBase(cmd.colorMode, cmd.blackLevel);
                 array = LerpMatrix(array, dbMatrix, (float)Math.Clamp(cmd.darkBoost, 0.0, 1.0));
+            }
+
+            // Invert Colours for NVG (White-hot / Thermal Night Vision)
+            if (cmd.invertColors)
+            {
+                float[] invertMatrix = new float[25]
+                {
+                    -1f,  0f,  0f, 0f, 0f,
+                     0f, -1f,  0f, 0f, 0f,
+                     0f,  0f, -1f, 0f, 0f,
+                     0f,  0f,  0f, 1f, 0f,
+                     1f,  1f,  1f, 0f, 1f
+                };
+                array = Multiply5x5(array, invertMatrix);
             }
 
             return array;

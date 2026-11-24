@@ -42,6 +42,7 @@ export interface DisplayAdjustmentParams {
   darkBoost?: number;
   blackLevel?: number;
   colorMode?: string;
+  invertColors?: boolean;
   [key: string]: any;
 }
 

@@ -173,8 +173,10 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
   }, [generateCode]);
 
   const lastSentParamsRef = useRef<string>('');
+  const rafIdRef = useRef<number | null>(null);
+  const pendingParamsRef = useRef<any>(null);
 
-  // Live apply to C# engine through Electron API: INSTANT direct dispatch with zero delay
+  // Live apply to C# engine: instant hardware response synchronized to frame refresh rate (zero queue, zero mouse lag)
   useEffect(() => {
     const params = {
       targetMonitors: tickedMonitors,
@@ -202,15 +204,28 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
       previewNeutral: isComparing,
     };
 
-    const serialized = JSON.stringify(params);
-    if (lastSentParamsRef.current === serialized) {
-      return;
+    pendingParamsRef.current = params;
+
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        const current = pendingParamsRef.current;
+        if (!current) return;
+        const serialized = JSON.stringify(current);
+        if (lastSentParamsRef.current === serialized) return;
+        lastSentParamsRef.current = serialized;
+        if (window.electronAPI) {
+          window.electronAPI.applyDisplaySettings(current);
+        }
+      });
     }
 
-    lastSentParamsRef.current = serialized;
-    if (window.electronAPI) {
-      window.electronAPI.applyDisplaySettings(params);
-    }
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
   }, [
     tickedMonitors,
     saturation,
