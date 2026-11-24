@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Copy, Plus, ChevronDown, ChevronUp, Image as ImageIcon, Info, History, RotateCcw, Sparkles } from 'lucide-react';
+import { Copy, Plus, ChevronDown, ChevronUp, Image as ImageIcon, Info, History, RotateCcw, Sparkles, Search, Check } from 'lucide-react';
 import { CrosshairSettings } from '../types/electron';
 import { OFFICIAL_CROSSHAIRS, CrosshairDesign } from '../data/presets';
 import { CrosshairRenderer } from '../components/CrosshairRenderer';
@@ -29,7 +29,7 @@ const OUTLINE_COLOUR_SWATCHES = [
   '#ff007f',
 ];
 
-type FamilyType = 'pro' | 'tactical' | 'dot' | 'cross' | 'x' | 'circle' | 'funny';
+type FamilyType = 'pro' | 'bridge' | 'tactical' | 'dot' | 'cross' | 'x' | 'circle' | 'funny';
 
 export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
   // Last used crosshair from localStorage
@@ -93,6 +93,7 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
   const [selectedPresetId, setSelectedPresetId] = useState<string>('s1mple');
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [shareCodeInput, setShareCodeInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [savedCrosshairs, setSavedCrosshairs] = useState<Array<{ name: string; settings: CrosshairSettings }>>(() => {
     try {
       const stored = localStorage.getItem('plexusx_saved_crosshairs');
@@ -174,8 +175,8 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
     const centreDot = !!d.dot_tenths;
     const showCircle = !!d.circle_tenths;
     const diagonal = d.diagonal;
-    const rotation = diagonal ? 45 : 0;
-    const chevron = d.id === 'triangle' || d.id === 'chevron-arrow' || d.name.toLowerCase().includes('chevron');
+    const rotation = d.rotation !== undefined ? d.rotation : (diagonal ? 45 : 0);
+    const chevron = d.chevron !== undefined ? d.chevron : (d.id === 'triangle' || d.id === 'chevron-arrow' || d.name.toLowerCase().includes('chevron') || d.name.toLowerCase().includes('godbridge'));
 
     const shape = showCircle && !d.arm_left
       ? 'circle'
@@ -214,7 +215,13 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
 
     updateSettings(newSettings);
     recordRecent(newSettings);
-    onNotify?.(`Loaded crosshair: ${d.name}`);
+    if (d.code && (d.game === 'CS2' || d.game === 'VALORANT')) {
+      onNotify?.(`Equipped official ${d.name} (${d.game}) crosshair!`);
+    } else if (d.name.toLowerCase().includes('godbridge')) {
+      onNotify?.(`Equipped Minecraft ${d.name}!`);
+    } else {
+      onNotify?.(`Loaded crosshair: ${d.name}`);
+    }
   };
 
   const handleApplyShape = (shape: 'cross' | 't' | 'circle' | 'dot' | 'chevron') => {
@@ -317,11 +324,24 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
   };
 
   const filteredPresets = OFFICIAL_CROSSHAIRS.filter((p) => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.family.toLowerCase().includes(q) ||
+        (p.game && p.game.toLowerCase().includes(q)) ||
+        (p.description && p.description.toLowerCase().includes(q)) ||
+        (p.code && p.code.toLowerCase().includes(q))
+      );
+    }
     const fam = p.family.toLowerCase();
     const active = activeFamily.toLowerCase();
     if (active === 'circle') return fam === 'circle' || fam === 'ring';
+    if (active === 'tactical') return fam === 'tactical' || fam === 'bridge';
     return fam === active;
   });
+
+  const currentPreset = OFFICIAL_CROSSHAIRS.find((p) => p.id === selectedPresetId);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0c0d0f] text-gray-200 overflow-hidden font-sans select-none">
@@ -911,10 +931,31 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
               </div>
             )}
 
-            {/* Category Tabs: Pro | Tactical | Dot | Cross | X | Circle | Funny */}
-            <div className="grid grid-cols-7 gap-1 bg-[#101217] p-1 rounded-lg border border-[#1e222d]">
+            {/* Search Filter */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search presets (e.g. godbridge, s1mple, donk, cs2)..."
+                className="w-full bg-[#101217] border border-[#232733] rounded-lg pl-8 pr-7 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500 transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-white"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* Category Tabs: Pro | Bridge | Tactical | Dot | Cross | X | Circle | Funny */}
+            <div className="grid grid-cols-8 gap-1 bg-[#101217] p-1 rounded-lg border border-[#1e222d]">
               {[
                 { id: 'pro', label: 'Pro' },
+                { id: 'bridge', label: 'Bridge' },
                 { id: 'tactical', label: 'Tac' },
                 { id: 'dot', label: 'Dot' },
                 { id: 'cross', label: 'Cross' },
@@ -924,9 +965,12 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
               ].map((tab) => (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveFamily(tab.id as FamilyType)}
-                  className={`py-1.5 rounded-md text-[11px] font-medium transition-colors text-center ${
-                    activeFamily === tab.id
+                  onClick={() => {
+                    setActiveFamily(tab.id as FamilyType);
+                    setSearchQuery('');
+                  }}
+                  className={`py-1.5 rounded-md text-[10px] font-medium transition-colors text-center truncate ${
+                    activeFamily === tab.id && !searchQuery
                       ? 'bg-white text-black font-semibold shadow-sm'
                       : 'text-gray-400 hover:text-gray-200'
                   }`}
@@ -954,8 +998,8 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
                   centreDot: !!preset.dot_tenths,
                   showCircle: !!preset.circle_tenths,
                   diagonal: preset.diagonal,
-                  rotation: preset.diagonal ? 45 : 0,
-                  chevron: preset.id === 'triangle' || preset.id === 'chevron-arrow' || preset.name.toLowerCase().includes('chevron'),
+                  rotation: preset.rotation !== undefined ? preset.rotation : (preset.diagonal ? 45 : 0),
+                  chevron: preset.chevron !== undefined ? preset.chevron : (preset.id === 'triangle' || preset.id === 'chevron-arrow' || preset.name.toLowerCase().includes('chevron') || preset.name.toLowerCase().includes('godbridge')),
                   opacity: 100,
                   colour: preset.color || '#00ff66',
                   color: preset.color || '#00ff66',
@@ -970,7 +1014,7 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
                   <button
                     key={preset.id}
                     onClick={() => handleApplyPreset(preset)}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all aspect-square ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all aspect-square relative ${
                       isSelected
                         ? 'bg-[#151922] border-2 border-white shadow-md'
                         : 'bg-[#12141a] border border-[#20242e] hover:border-gray-500'
@@ -984,13 +1028,62 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
                         showCenterGrid={false}
                       />
                     </div>
-                    <span className="text-[11px] font-medium text-gray-300 mt-1 truncate max-w-full">
-                      {preset.name}
-                    </span>
+                    <div className="flex items-center space-x-1 mt-1 max-w-full justify-center px-0.5">
+                      {preset.game && (
+                        <span className={`text-[8px] font-bold px-1 rounded flex-shrink-0 ${
+                          preset.game === 'CS2'
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : preset.game === 'VALORANT'
+                            ? 'bg-rose-500/20 text-rose-300'
+                            : 'bg-emerald-500/20 text-emerald-300'
+                        }`}>
+                          {preset.game === 'Minecraft' ? 'MC' : preset.game === 'VALORANT' ? 'VAL' : preset.game}
+                        </span>
+                      )}
+                      <span className="text-[11px] font-medium text-gray-300 truncate">
+                        {preset.name}
+                      </span>
+                    </div>
                   </button>
                 );
               })}
             </div>
+
+            {/* Official Preset Code Banner */}
+            {currentPreset && currentPreset.code && (
+              <div className="bg-[#121622] border border-[#232b3d] rounded-xl p-3 flex flex-col space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-xs font-semibold text-white">
+                      {currentPreset.name} Official Code
+                    </span>
+                    {currentPreset.game && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        {currentPreset.game}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentPreset.code!);
+                      onNotify?.(`Copied ${currentPreset.name} official code to clipboard!`);
+                    }}
+                    className="flex items-center space-x-1 px-2.5 py-1 bg-white hover:bg-gray-200 text-black rounded text-[11px] font-semibold transition-colors"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy Code</span>
+                  </button>
+                </div>
+                <div className="font-mono text-xs text-gray-300 bg-[#0a0c10] px-2.5 py-1.5 rounded border border-[#1b202c] select-all truncate">
+                  {currentPreset.code}
+                </div>
+                {currentPreset.description && (
+                  <span className="text-[11px] text-gray-400">
+                    {currentPreset.description}
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Share Code Section */}
             <div className="flex flex-col space-y-2 pt-4 border-t border-[#1c202a]">
