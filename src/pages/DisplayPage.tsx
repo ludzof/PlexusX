@@ -152,7 +152,7 @@ export const DisplayPage: React.FC<DisplayPageProps> = ({ onNotify }) => {
 
   // UI state
   const [isComparing, setIsComparing] = useState<boolean>(false);
-  const [showWarning, setShowWarning] = useState<boolean>(true);
+  const [showWarning, setShowWarning] = useState<boolean>(false);
   const [showQuickModal, setShowQuickModal] = useState<boolean>(false);
   const [shareCode, setShareCode] = useState<string>('PX-56563M3M3M565656227P3M3M3M22225T7Z5622D');
   const [copiedCode, setCopiedCode] = useState<boolean>(false);

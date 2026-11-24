@@ -393,34 +393,28 @@ namespace PlexusEngine
                         {
                             ApplyMatrix(IdentityMatrix);
                             ResetSafeGamma();
+                            ResetNvApiVibrance();
                             Console.WriteLine("{\"status\":\"ok\",\"action\":\"apply\",\"neutral\":true}");
                         }
                         else
                         {
-                            List<string> allDevs = GetAttachedDisplayDeviceNames();
                             bool noneTicked = cmd.targetMonitors != null && cmd.targetMonitors.Count == 0;
-                            bool someUnticked = cmd.targetMonitors != null && cmd.targetMonitors.Count > 0 && allDevs.Count > 0 && cmd.targetMonitors.Count < allDevs.Count;
 
                             if (noneTicked)
                             {
                                 ApplyMatrix(IdentityMatrix);
                                 ResetSafeGamma();
+                                ResetNvApiVibrance();
                                 Console.WriteLine("{\"status\":\"ok\",\"action\":\"apply\",\"paused\":true}");
-                            }
-                            else if (someUnticked)
-                            {
-                                // Whole-desktop magnification effects paused while any monitor is unticked
-                                ApplyMatrix(IdentityMatrix);
-                                bool gammaOk = ApplyExactToneCurve(cmd);
-                                Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":false,\"gamma\":{gammaOk.ToString().ToLower()},\"unticked\":true}}");
                             }
                             else
                             {
-                                // All monitors ticked -> Full matrix + gamma
+                                // Apply settings whenever any monitor is selected!
                                 var matrix = BuildExactPlexusMatrix(cmd);
                                 bool matrixOk = ApplyMatrix(matrix);
                                 bool gammaOk = ApplyExactToneCurve(cmd);
-                                Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":{matrixOk.ToString().ToLower()},\"gamma\":{gammaOk.ToString().ToLower()}}}");
+                                bool nvapiOk = ApplyNvApiVibrance(cmd);
+                                Console.WriteLine($"{{\"status\":\"ok\",\"action\":\"apply\",\"matrix\":{matrixOk.ToString().ToLower()},\"gamma\":{gammaOk.ToString().ToLower()},\"nvapi\":{nvapiOk.ToString().ToLower()}}}");
                             }
                         }
                     }
@@ -662,6 +656,7 @@ namespace PlexusEngine
             ResetZoom();
             ApplyMatrix(IdentityMatrix);
             ResetSafeGamma();
+            ResetNvApiVibrance();
         }
 
         public static bool ApplyMatrix(float[] matrix)
@@ -858,6 +853,81 @@ namespace PlexusEngine
                 ReleaseDC(IntPtr.Zero, hdcFallback);
             }
             return anyOk;
+        }
+
+        public static void ResetNvApiVibrance()
+        {
+            try
+            {
+                NvAPIWrapper.NVIDIA.Initialize();
+                var configs = NvAPIWrapper.Display.PathInfo.GetDisplaysConfig();
+                if (configs != null)
+                {
+                    foreach (var c in configs)
+                    {
+                        foreach (var t in c.TargetsInfo)
+                        {
+                            try
+                            {
+                                var outputId = (NvAPIWrapper.Native.GPU.OutputId)t.DisplayDevice.DisplayId;
+                                NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, 50);
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static bool ApplyNvApiVibrance(EngineCommand cmd)
+        {
+            try
+            {
+                NvAPIWrapper.NVIDIA.Initialize();
+                var configs = NvAPIWrapper.Display.PathInfo.GetDisplaysConfig();
+                if (configs == null || configs.Length == 0) return false;
+
+                uint primaryId = 0;
+                try
+                {
+                    primaryId = NvAPIWrapper.Display.DisplayDevice.GetGDIPrimaryDisplayDevice().DisplayId;
+                }
+                catch { }
+
+                // Vibrance slider is 0.0 to 3.5 (1.0 = 100% normal)
+                // In NVIDIA DVC: 0 to 100, where 50 is default/normal (100%), 0 is grayscale, 100 is 200%+
+                int targetDvc = Math.Clamp((int)Math.Round(cmd.vibrance * 50.0), 0, 100);
+
+                int nonPrimaryIndex = 2;
+                bool anySet = false;
+                foreach (var c in configs)
+                {
+                    foreach (var t in c.TargetsInfo)
+                    {
+                        uint dId = t.DisplayDevice.DisplayId;
+                        bool isPrimary = (primaryId != 0 && dId == primaryId);
+                        string gdiName = isPrimary ? "\\\\.\\DISPLAY1" : $"\\\\.\\DISPLAY{nonPrimaryIndex}";
+                        if (!isPrimary) nonPrimaryIndex++;
+
+                        bool shouldApply = cmd.targetMonitors == null || cmd.targetMonitors.Count == 0 || cmd.targetMonitors.Contains(gdiName);
+
+                        int levelToSet = shouldApply ? targetDvc : 50;
+                        try
+                        {
+                            var outputId = (NvAPIWrapper.Native.GPU.OutputId)dId;
+                            NvAPIWrapper.Native.DisplayApi.SetDVCLevelEx(outputId, levelToSet);
+                            anySet = true;
+                        }
+                        catch { }
+                    }
+                }
+                return anySet;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // ==========================================
