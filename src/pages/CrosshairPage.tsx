@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Copy, Plus, ChevronDown, ChevronUp, Image as ImageIcon, Info } from 'lucide-react';
+import { Copy, Plus, ChevronDown, ChevronUp, Image as ImageIcon, Info, History, RotateCcw, Sparkles } from 'lucide-react';
 import { CrosshairSettings } from '../types/electron';
 import { OFFICIAL_CROSSHAIRS, CrosshairDesign } from '../data/presets';
 import { CrosshairRenderer } from '../components/CrosshairRenderer';
@@ -29,42 +29,68 @@ const OUTLINE_COLOUR_SWATCHES = [
   '#ff007f',
 ];
 
-type FamilyType = 'dot' | 'cross' | 'x' | 'circle' | 'funny';
+type FamilyType = 'pro' | 'tactical' | 'dot' | 'cross' | 'x' | 'circle' | 'funny';
 
 export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
-  const [settings, setSettings] = useState<CrosshairSettings>({
-    enabled: false,
-    name: 'Open X',
-    shape: 'cross',
-    armTop: true,
-    armBottom: true,
-    armLeft: true,
-    armRight: true,
-    centreDot: false,
-    showCircle: false,
-    diagonal: true,
-    chevron: false,
-    size: 3,
-    thickness: 1,
-    gap: 4,
-    dotSize: 2,
-    dotOpacity: 100,
-    circleRadius: 12,
-    rotation: 45,
-    opacity: 100,
-    colour: '#00ff66',
-    color: '#00ff66',
-    outline: true,
-    outlineThickness: 1,
-    outlineColour: '#000000',
-    offsetX: 0,
-    offsetY: 0,
-    imagePath: null,
-    imageScalePercent: 100,
+  // Last used crosshair from localStorage
+  const [lastUsedCrosshair, setLastUsedCrosshair] = useState<CrosshairSettings | null>(() => {
+    try {
+      const stored = localStorage.getItem('plexusx_last_used_crosshair');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
   });
 
-  const [activeFamily, setActiveFamily] = useState<FamilyType>('x');
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('open-x');
+  // Recent crosshairs history (last 5 used)
+  const [recentCrosshairs, setRecentCrosshairs] = useState<CrosshairSettings[]>(() => {
+    try {
+      const stored = localStorage.getItem('plexusx_recent_crosshairs');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [settings, setSettings] = useState<CrosshairSettings>(() => {
+    try {
+      const stored = localStorage.getItem('plexusx_last_used_crosshair');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return {
+      enabled: false,
+      name: 's1mple',
+      shape: 'cross',
+      armTop: true,
+      armBottom: true,
+      armLeft: true,
+      armRight: true,
+      centreDot: false,
+      showCircle: false,
+      diagonal: false,
+      chevron: false,
+      size: 2,
+      thickness: 1,
+      gap: 1,
+      dotSize: 2,
+      dotOpacity: 100,
+      circleRadius: 12,
+      rotation: 0,
+      opacity: 100,
+      colour: '#00e5ff',
+      color: '#00e5ff',
+      outline: false,
+      outlineThickness: 1,
+      outlineColour: '#000000',
+      offsetX: 0,
+      offsetY: 0,
+      imagePath: null,
+      imageScalePercent: 100,
+    };
+  });
+
+  const [activeFamily, setActiveFamily] = useState<FamilyType>('pro');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('s1mple');
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [shareCodeInput, setShareCodeInput] = useState('');
   const [savedCrosshairs, setSavedCrosshairs] = useState<Array<{ name: string; settings: CrosshairSettings }>>(() => {
@@ -98,6 +124,22 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
     }
   }, []);
 
+  const recordRecent = (c: CrosshairSettings) => {
+    setLastUsedCrosshair(c);
+    try {
+      localStorage.setItem('plexusx_last_used_crosshair', JSON.stringify(c));
+    } catch {}
+
+    setRecentCrosshairs((prev) => {
+      const filtered = prev.filter((item) => item.name !== c.name);
+      const updated = [c, ...filtered].slice(0, 5);
+      try {
+        localStorage.setItem('plexusx_recent_crosshairs', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
   const updateSettings = (partial: Partial<CrosshairSettings>) => {
     const next: CrosshairSettings = {
       ...settings,
@@ -106,6 +148,11 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
       colour: partial.colour || partial.color || settings.colour || settings.color || '#00ff66',
     };
     setSettings(next);
+
+    try {
+      localStorage.setItem('plexusx_last_used_crosshair', JSON.stringify(next));
+    } catch {}
+
     if (window.electronAPI) {
       window.electronAPI.updateCrosshair(next);
     }
@@ -128,7 +175,7 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
     const showCircle = !!d.circle_tenths;
     const diagonal = d.diagonal;
     const rotation = diagonal ? 45 : 0;
-    const chevron = d.id === 'triangle' || d.name.toLowerCase().includes('chevron');
+    const chevron = d.id === 'triangle' || d.id === 'chevron-arrow' || d.name.toLowerCase().includes('chevron');
 
     const shape = showCircle && !d.arm_left
       ? 'circle'
@@ -140,7 +187,10 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
       ? 'dot'
       : 'cross';
 
-    updateSettings({
+    const chosenColor = d.color || settings.colour || '#00ff66';
+
+    const newSettings: CrosshairSettings = {
+      ...settings,
       name: d.name,
       shape,
       armTop: d.arm_top,
@@ -158,7 +208,12 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
       circleRadius,
       rotation,
       outline: d.outline,
-    });
+      colour: chosenColor,
+      color: chosenColor,
+    };
+
+    updateSettings(newSettings);
+    recordRecent(newSettings);
     onNotify?.(`Loaded crosshair: ${d.name}`);
   };
 
@@ -261,9 +316,12 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
     onNotify?.(`Saved crosshair "${saveName.trim()}"`);
   };
 
-  const filteredPresets = OFFICIAL_CROSSHAIRS.filter(
-    (p) => p.family.toLowerCase() === activeFamily.toLowerCase()
-  );
+  const filteredPresets = OFFICIAL_CROSSHAIRS.filter((p) => {
+    const fam = p.family.toLowerCase();
+    const active = activeFamily.toLowerCase();
+    if (active === 'circle') return fam === 'circle' || fam === 'ring';
+    return fam === active;
+  });
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0c0d0f] text-gray-200 overflow-hidden font-sans select-none">
@@ -779,19 +837,95 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
         {/* RIGHT COLUMN: Preset Families & Share Code */}
         <div className="w-[38%] flex flex-col justify-between px-6 py-6 overflow-y-auto space-y-6">
           <div className="flex flex-col space-y-5">
-            {/* Category Tabs: Dot | Cross | X | Circle | Funny */}
-            <div className="flex items-center bg-[#101217] p-1 rounded-lg border border-[#1e222d] space-x-1">
+            {/* Last Used Crosshair Quick Restore Card */}
+            {lastUsedCrosshair && (
+              <div className="bg-[#12151d] border border-[#232836] rounded-xl p-3 flex flex-col space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5 text-xs font-semibold text-gray-300">
+                    <History className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>LAST USED CROSSHAIR</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      updateSettings(lastUsedCrosshair);
+                      onNotify?.(`Restored last used: ${lastUsedCrosshair.name || 'Custom'}`);
+                    }}
+                    className="flex items-center space-x-1 px-2.5 py-1 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Equip</span>
+                  </button>
+                </div>
+
+                <div
+                  onClick={() => {
+                    updateSettings(lastUsedCrosshair);
+                    onNotify?.(`Restored last used: ${lastUsedCrosshair.name || 'Custom'}`);
+                  }}
+                  className="flex items-center space-x-3 bg-[#0d0f14] p-2.5 rounded-lg border border-[#1b1f2b] hover:border-cyan-500/40 cursor-pointer transition-colors"
+                >
+                  <div className="w-10 h-10 flex-shrink-0 bg-[#08090c] rounded-md border border-[#202533] flex items-center justify-center overflow-hidden">
+                    <CrosshairRenderer
+                      settings={{ ...lastUsedCrosshair, enabled: true }}
+                      previewWidth={40}
+                      previewHeight={40}
+                      showCenterGrid={false}
+                    />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-semibold text-white truncate">
+                      {lastUsedCrosshair.name || 'Custom Configuration'}
+                    </span>
+                    <span className="text-[11px] text-gray-400 capitalize">
+                      {lastUsedCrosshair.shape || 'cross'} • Size {lastUsedCrosshair.size} • Gap {lastUsedCrosshair.gap}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Recent History Chips */}
+                {recentCrosshairs.length > 0 && (
+                  <div className="flex flex-col space-y-1.5 pt-1 border-t border-[#1a1e2a]">
+                    <span className="text-[10px] font-semibold tracking-wider uppercase text-gray-500">
+                      Recent History
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {recentCrosshairs.map((item, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            updateSettings(item);
+                            onNotify?.(`Equipped: ${item.name || 'Custom'}`);
+                          }}
+                          className="flex items-center space-x-1.5 px-2 py-1 bg-[#161a24] hover:bg-[#1f2433] border border-[#232838] hover:border-gray-500 rounded-md text-[11px] text-gray-300 transition-colors"
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full inline-block flex-shrink-0"
+                            style={{ backgroundColor: item.colour || item.color || '#00ff66' }}
+                          />
+                          <span className="truncate max-w-[90px]">{item.name || 'Custom'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Category Tabs: Pro | Tactical | Dot | Cross | X | Circle | Funny */}
+            <div className="grid grid-cols-7 gap-1 bg-[#101217] p-1 rounded-lg border border-[#1e222d]">
               {[
+                { id: 'pro', label: 'Pro' },
+                { id: 'tactical', label: 'Tac' },
                 { id: 'dot', label: 'Dot' },
                 { id: 'cross', label: 'Cross' },
                 { id: 'x', label: 'X' },
                 { id: 'circle', label: 'Circle' },
-                { id: 'funny', label: 'Funny' },
+                { id: 'funny', label: 'Fun' },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveFamily(tab.id as FamilyType)}
-                  className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  className={`py-1.5 rounded-md text-[11px] font-medium transition-colors text-center ${
                     activeFamily === tab.id
                       ? 'bg-white text-black font-semibold shadow-sm'
                       : 'text-gray-400 hover:text-gray-200'
@@ -802,7 +936,7 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
               ))}
             </div>
 
-            {/* Presets Grid: 6 tiles (4 in first row, 2 in second row) */}
+            {/* Presets Grid */}
             <div className="grid grid-cols-4 gap-2.5">
               {filteredPresets.map((preset) => {
                 const isSelected = selectedPresetId === preset.id;
@@ -821,10 +955,10 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
                   showCircle: !!preset.circle_tenths,
                   diagonal: preset.diagonal,
                   rotation: preset.diagonal ? 45 : 0,
-                  chevron: preset.id === 'triangle' || preset.name.toLowerCase().includes('chevron'),
+                  chevron: preset.id === 'triangle' || preset.id === 'chevron-arrow' || preset.name.toLowerCase().includes('chevron'),
                   opacity: 100,
-                  colour: '#00ff66',
-                  color: '#00ff66',
+                  colour: preset.color || '#00ff66',
+                  color: preset.color || '#00ff66',
                   outline: preset.outline,
                   outlineThickness: 1,
                   outlineColour: '#000000',
