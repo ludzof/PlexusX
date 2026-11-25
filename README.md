@@ -7,8 +7,12 @@
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/ludzof/PlexusX)
 [![Anti-Cheat Safe](https://img.shields.io/badge/Anti--Cheat-100%25%20Safe-00ff66?style=flat-square&logo=shield&logoColor=black)](https://github.com/ludzof/PlexusX#-anti-cheat-safe)
 [![NVIDIA AMD Intel](https://img.shields.io/badge/GPU-NVIDIA%20%7C%20AMD%20%7C%20Intel-76B900?style=flat-square)](https://github.com/ludzof/PlexusX)
-[![Version](https://img.shields.io/badge/Version-v2.1.17-00e5ff?style=flat-square)](https://github.com/ludzof/PlexusX)
+[![Version](https://img.shields.io/badge/Version-v2.1.17-00e5ff?style=flat-square)](https://github.com/ludzof/PlexusX/releases/latest)
 [![License](https://img.shields.io/badge/License-MIT-purple?style=flat-square)](LICENSE)
+
+<br/>
+
+**[⬇️ Download Latest Release (v2.1.17 — Windows Installer & Portable)](https://github.com/ludzof/PlexusX/releases/latest)**
 
 <br/>
 
