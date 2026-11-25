@@ -102,18 +102,18 @@ const AppContent: React.FC = () => {
 
         {/* Center Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden relative">
-          {currentTab === 'darkboost' && (
-            <DarkBoostPage onNotify={showNotification} />
-          )}
-          {currentTab === 'display' && (
+          <div className={currentTab === 'display' ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
             <DisplayPage onNotify={showNotification} />
-          )}
-          {currentTab === 'resolution' && (
+          </div>
+          <div className={currentTab === 'darkboost' ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
+            <DarkBoostPage onNotify={showNotification} />
+          </div>
+          <div className={currentTab === 'resolution' ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
             <ResolutionPage onNotify={showNotification} />
-          )}
-          {currentTab === 'crosshair' && (
+          </div>
+          <div className={currentTab === 'crosshair' ? 'flex-1 flex flex-col overflow-hidden' : 'hidden'}>
             <CrosshairPage onNotify={showNotification} />
-          )}
+          </div>
           {currentTab === 'monitor' && (
             <MonitorPage onNotify={showNotification} />
           )}
@@ -133,8 +133,8 @@ const AppContent: React.FC = () => {
 
           {/* Toast Notification */}
           {notification && (
-            <div className="absolute bottom-5 right-6 z-50 bg-[#161a22]/90 border border-emerald-500/50 text-white text-xs font-semibold py-2.5 px-4 rounded-xl shadow-[0_4px_24px_rgba(0,240,118,0.25)] flex items-center space-x-2 animate-bounce backdrop-blur-md">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="absolute bottom-5 right-6 z-50 bg-[#161a22]/95 border border-emerald-500/50 text-white text-xs font-semibold py-2.5 px-4 rounded-xl shadow-[0_4px_24px_rgba(0,240,118,0.25)] flex items-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
               <span>{notification}</span>
             </div>
           )}

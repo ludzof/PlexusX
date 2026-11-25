@@ -107,12 +107,17 @@ export const CrosshairPage: React.FC<CrosshairPageProps> = ({ onNotify }) => {
   const [saveName, setSaveName] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Sync from main Electron process on mount
+  // Sync saved crosshair to main Electron process on mount without overwriting localStorage
   useEffect(() => {
     if (window.electronAPI) {
-      window.electronAPI.getCrosshair().then((saved) => {
-        if (saved) {
-          setSettings((prev) => ({ ...prev, ...saved }));
+      window.electronAPI.getCrosshair().then((mainSaved) => {
+        const hasLocal = !!localStorage.getItem('plexusx_last_used_crosshair');
+        if (hasLocal) {
+          const synced = { ...settings, enabled: mainSaved?.enabled ?? false };
+          setSettings(synced);
+          window.electronAPI?.updateCrosshair(synced);
+        } else if (mainSaved) {
+          setSettings((prev) => ({ ...prev, ...mainSaved }));
         }
       });
 

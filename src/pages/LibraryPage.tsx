@@ -138,7 +138,14 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({ onNotify, onNavigateTo
         });
       }
       onNotify?.(`Applied full setup "${item.name}"`);
-    } else if (item.kind === 'display') {
+    } else if (item.kind === 'display' && item.values) {
+      if (window.electronAPI?.applyResolution) {
+        await window.electronAPI.applyResolution({
+          width: item.values.width ?? 1440,
+          height: item.values.height ?? 1080,
+          hz: item.values.hz ?? 144,
+        });
+      }
       onNotify?.(`Applied display resolution ${item.values?.width} × ${item.values?.height}`);
     }
   };

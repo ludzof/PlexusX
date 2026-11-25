@@ -281,73 +281,19 @@ namespace PlexusEngine
         [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")]
         public static extern int GetSourceName(ref DISPLAYCONFIG_SOURCE_DEVICE_NAME deviceName);
 
-        // Low-level mouse and keyboard hooks
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelProc lpfn, IntPtr hMod, uint dwThreadId);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr GetModuleHandle(string? lpModuleName);
-
+        // Zero-hook key state polling for Hold-to-Zoom (never intercepts WM_MOUSEMOVE)
         [DllImport("user32.dll")]
-        private static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
-
-        [DllImport("user32.dll")]
-        private static extern bool TranslateMessage(ref MSG lpMsg);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr DispatchMessage(ref MSG lpMsg);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct POINT { public int x; public int y; }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam; public uint time; public POINT pt; }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct MSLLHOOKSTRUCT { public POINT pt; public uint mouseData; public uint flags; public uint time; public IntPtr dwExtraInfo; }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct KBDLLHOOKSTRUCT { public uint vkCode; public uint scanCode; public uint flags; public uint time; public IntPtr dwExtraInfo; }
-
-        private delegate IntPtr LowLevelProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-        private const int WH_KEYBOARD_LL = 13;
-        private const int WH_MOUSE_LL = 14;
-
-        private const int WM_KEYDOWN = 0x0100;
-        private const int WM_KEYUP = 0x0101;
-        private const int WM_SYSKEYDOWN = 0x0104;
-        private const int WM_SYSKEYUP = 0x0105;
-
-        private const int WM_XBUTTONDOWN = 0x020B;
-        private const int WM_XBUTTONUP = 0x020C;
-        private const int WM_RBUTTONDOWN = 0x0204;
-        private const int WM_RBUTTONUP = 0x0205;
-        private const int WM_MBUTTONDOWN = 0x0207;
-        private const int WM_MBUTTONUP = 0x0208;
-
-        private const int XBUTTON1 = 1; // Mouse 4
-        private const int XBUTTON2 = 2; // Mouse 5
+        private static extern short GetAsyncKeyState(int vKey);
 
         private static bool _magInitialized = false;
-        private static bool _holdToZoom = false;
-        private static string _zoomKey = "Mouse 5";
-        private static float _zoomLevel = 2.0f;
-        private static bool _smoothEdges = false;
-        private static bool _smooth = false;
-        private static bool _isZooming = false;
-
-        private static IntPtr _mouseHook = IntPtr.Zero;
-        private static IntPtr _kbdHook = IntPtr.Zero;
-        private static LowLevelProc? _mouseProc;
-        private static LowLevelProc? _kbdProc;
+        private static volatile bool _holdToZoom = false;
+        private static volatile string _zoomKey = "Mouse 5";
+        private static volatile float _zoomLevel = 2.0f;
+        private static volatile bool _smoothEdges = false;
+        private static volatile bool _smooth = false;
+        private static volatile bool _isZooming = false;
+        private static volatile bool _zoomTriggeredByHold = false;
+        private static readonly ManualResetEventSlim _zoomMonitorSignal = new ManualResetEventSlim(false);
 
         private static readonly float[] IdentityMatrix = new float[25]
         {
@@ -379,12 +325,12 @@ namespace PlexusEngine
             EnsureNvApiInitialized();
             EnsureAllOriginalGammasSaved();
 
-            // Start background thread for mouse and keyboard hook
-            Thread hookThread = new Thread(HookMessageLoop)
+            // Start zero-hook zoom key monitor thread (sleeps at 0% CPU when hold-to-zoom is off)
+            Thread zoomThread = new Thread(ZoomMonitorLoop)
             {
                 IsBackground = true
             };
-            hookThread.Start();
+            zoomThread.Start();
 
             // Interactive JSON Loop
             Console.WriteLine("{\"status\":\"ready\",\"engine\":\"PlexusEngine\",\"mag\":" + _magInitialized.ToString().ToLower() + "}");
@@ -455,21 +401,31 @@ namespace PlexusEngine
                     else if (cmd.action == "set-zoom-config")
                     {
                         _holdToZoom = cmd.holdToZoom;
-                        _zoomKey = cmd.zoomKey;
+                        _zoomKey = cmd.zoomKey ?? "Mouse 5";
                         _zoomLevel = Math.Clamp(cmd.zoomLevel, 1.25f, 4.0f);
                         _smooth = cmd.smooth;
                         _smoothEdges = cmd.smoothEdges;
                         try { MagSetFullscreenUseBitmapSmoothing(_smoothEdges); } catch { }
-                        UpdateMouseHook();
+                        if (_holdToZoom)
+                        {
+                            _zoomMonitorSignal.Set();
+                        }
+                        else if (_zoomTriggeredByHold)
+                        {
+                            _zoomTriggeredByHold = false;
+                            ResetZoom();
+                        }
                         Console.WriteLine("{\"status\":\"ok\",\"action\":\"zoom_config_set\"}");
                     }
                     else if (cmd.action == "trigger-zoom")
                     {
+                        _zoomTriggeredByHold = false;
                         ApplyZoom(cmd.zoomLevel, cmd.smoothEdges);
                         Console.WriteLine("{\"status\":\"ok\",\"action\":\"trigger-zoom\"}");
                     }
                     else if (cmd.action == "release-zoom")
                     {
+                        _zoomTriggeredByHold = false;
                         ResetZoom();
                         Console.WriteLine("{\"status\":\"ok\",\"action\":\"release-zoom\"}");
                     }
@@ -523,133 +479,61 @@ namespace PlexusEngine
             Environment.Exit(0);
         }
 
-        private static void HookMessageLoop()
+        private static int GetZoomVirtualKey(string? zoomKey)
         {
-            _mouseProc = MouseHookCallback;
-            _kbdProc = KbdHookCallback;
-
-            using var curProcess = Process.GetCurrentProcess();
-            using var curModule = curProcess.MainModule;
-            IntPtr hMod = GetModuleHandle(curModule?.ModuleName);
-
-            // NEVER install WH_MOUSE_LL unconditionally! It blocks mouse movement at 1000Hz causing cursor stutter.
-            // Only hook keyboard for zoom shortcut; mouse hook is loaded on-demand only when hold-to-zoom requires it.
-            _kbdHook = SetWindowsHookEx(WH_KEYBOARD_LL, _kbdProc, hMod, 0);
-
-            while (GetMessage(out MSG msg, IntPtr.Zero, 0, 0) != 0)
+            if (string.IsNullOrWhiteSpace(zoomKey)) return 0x06; // Mouse 5
+            string zk = zoomKey.Trim().ToUpperInvariant();
+            return zk switch
             {
-                TranslateMessage(ref msg);
-                DispatchMessage(ref msg);
-            }
-
-            if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
-            if (_kbdHook != IntPtr.Zero) { UnhookWindowsHookEx(_kbdHook); _kbdHook = IntPtr.Zero; }
+                "MOUSE 5" => 0x06,      // VK_XBUTTON2
+                "MOUSE 4" => 0x05,      // VK_XBUTTON1
+                "RIGHT CLICK" => 0x02,  // VK_RBUTTON
+                "MIDDLE CLICK" => 0x04, // VK_MBUTTON
+                "ALT" or "LEFT ALT" => 0x12,    // VK_MENU
+                "CTRL" or "LEFT CTRL" => 0x11,  // VK_CONTROL
+                "SHIFT" or "LEFT SHIFT" => 0x10,// VK_SHIFT
+                "SPACE" => 0x20,
+                "C" => 0x43,
+                "V" => 0x56,
+                "Z" => 0x5A,
+                "X" => 0x58,
+                _ => 0
+            };
         }
 
-        private static void UpdateMouseHook()
+        private static void ZoomMonitorLoop()
         {
-            try
+            while (true)
             {
-                bool needsMouseHook = _holdToZoom && (
-                    _zoomKey.Equals("Mouse 5", StringComparison.OrdinalIgnoreCase) ||
-                    _zoomKey.Equals("Mouse 4", StringComparison.OrdinalIgnoreCase) ||
-                    _zoomKey.Equals("Right Click", StringComparison.OrdinalIgnoreCase) ||
-                    _zoomKey.Equals("Middle Click", StringComparison.OrdinalIgnoreCase)
-                );
-
-                if (needsMouseHook && _mouseHook == IntPtr.Zero && _mouseProc != null)
+                if (!_holdToZoom)
                 {
-                    using var curProcess = Process.GetCurrentProcess();
-                    using var curModule = curProcess.MainModule;
-                    IntPtr hMod = GetModuleHandle(curModule?.ModuleName);
-                    _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseProc, hMod, 0);
-                }
-                else if (!needsMouseHook && _mouseHook != IntPtr.Zero)
-                {
-                    UnhookWindowsHookEx(_mouseHook);
-                    _mouseHook = IntPtr.Zero;
-                }
-            }
-            catch { }
-        }
-
-        private static IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            if (nCode >= 0 && _holdToZoom)
-            {
-                int msg = (int)wParam;
-                if (msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP)
-                {
-                    var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                    int xButton = (int)(hookStruct.mouseData >> 16);
-
-                    bool isTarget = false;
-                    if (_zoomKey.Equals("Mouse 5", StringComparison.OrdinalIgnoreCase) && xButton == XBUTTON2)
-                        isTarget = true;
-                    else if (_zoomKey.Equals("Mouse 4", StringComparison.OrdinalIgnoreCase) && xButton == XBUTTON1)
-                        isTarget = true;
-
-                    if (isTarget)
+                    if (_zoomTriggeredByHold)
                     {
-                        if (msg == WM_XBUTTONDOWN)
-                            ApplyZoom(_zoomLevel, _smoothEdges);
-                        else if (msg == WM_XBUTTONUP)
-                            ResetZoom();
+                        _zoomTriggeredByHold = false;
+                        ResetZoom();
                     }
+                    _zoomMonitorSignal.Reset();
+                    _zoomMonitorSignal.Wait();
+                    continue;
                 }
-                else if (msg == WM_RBUTTONDOWN && _zoomKey.Equals("Right Click", StringComparison.OrdinalIgnoreCase))
-                {
-                    ApplyZoom(_zoomLevel, _smoothEdges);
-                }
-                else if (msg == WM_RBUTTONUP && _zoomKey.Equals("Right Click", StringComparison.OrdinalIgnoreCase))
-                {
-                    ResetZoom();
-                }
-                else if (msg == WM_MBUTTONDOWN && _zoomKey.Equals("Middle Click", StringComparison.OrdinalIgnoreCase))
-                {
-                    ApplyZoom(_zoomLevel, _smoothEdges);
-                }
-                else if (msg == WM_MBUTTONUP && _zoomKey.Equals("Middle Click", StringComparison.OrdinalIgnoreCase))
-                {
-                    ResetZoom();
-                }
-            }
-            return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
-        }
 
-        private static IntPtr KbdHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            if (nCode >= 0 && _holdToZoom)
-            {
-                int msg = (int)wParam;
-                var kbd = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                uint vk = kbd.vkCode;
-
-                bool isTargetKey = false;
-                string zk = _zoomKey.ToUpperInvariant();
-
-                if ((zk == "ALT" || zk == "LEFT ALT") && (vk == 0x12 || vk == 0xA4)) isTargetKey = true;
-                else if ((zk == "CTRL" || zk == "LEFT CTRL") && (vk == 0x11 || vk == 0xA2)) isTargetKey = true;
-                else if ((zk == "SHIFT" || zk == "LEFT SHIFT") && (vk == 0x10 || vk == 0xA0)) isTargetKey = true;
-                else if (zk == "SPACE" && vk == 0x20) isTargetKey = true;
-                else if (zk == "C" && vk == 0x43) isTargetKey = true;
-                else if (zk == "V" && vk == 0x56) isTargetKey = true;
-                else if (zk == "Z" && vk == 0x5A) isTargetKey = true;
-                else if (zk == "X" && vk == 0x58) isTargetKey = true;
-
-                if (isTargetKey)
+                int vk = GetZoomVirtualKey(_zoomKey);
+                if (vk != 0)
                 {
-                    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+                    bool isPressed = (GetAsyncKeyState(vk) & 0x8000) != 0;
+                    if (isPressed && !_zoomTriggeredByHold)
                     {
-                        if (!_isZooming) ApplyZoom(_zoomLevel, _smoothEdges);
+                        _zoomTriggeredByHold = true;
+                        ApplyZoom(_zoomLevel, _smoothEdges);
                     }
-                    else if (msg == WM_KEYUP || msg == WM_SYSKEYUP)
+                    else if (!isPressed && _zoomTriggeredByHold)
                     {
+                        _zoomTriggeredByHold = false;
                         ResetZoom();
                     }
                 }
+                Thread.Sleep(12);
             }
-            return CallNextHookEx(_kbdHook, nCode, wParam, lParam);
         }
 
         public static void ApplyZoom(float level, bool smoothEdges)
@@ -687,6 +571,7 @@ namespace PlexusEngine
             {
                 MagSetFullscreenTransform(1.0f, 0, 0);
                 _isZooming = false;
+                _zoomTriggeredByHold = false;
             }
             catch { }
         }
@@ -700,7 +585,6 @@ namespace PlexusEngine
             ApplyMatrix(IdentityMatrix);
             ResetSafeGamma();
             ResetNvApiVibrance();
-            if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
         }
 
         private static float[]? _lastAppliedMatrix = null;
@@ -1424,32 +1308,37 @@ namespace PlexusEngine
 
         private static float[] DarkBoostLookBase(string tint, int blackLevel)
         {
-            float[] basis = new float[25]
-            {
-                0.32f, 4f, 1f, 0f, 0f,
-                0.32f, 4f, 1f, 0f, 0f,
-                0.32f, 4f, 1f, 0f, 0f,
-                0f, 0f, 0f, 1f, 0f,
-                -0.003764706f, -0.047058824f, -0.011764706f, 0f, 1f
-            };
+            float bl = Math.Clamp(blackLevel, 0, 100) / 100.0f * 0.08f;
+            string t = (tint ?? "green").ToLowerInvariant();
 
-            float tR = 0.15f, tG = 1.0f, tB = 0.25f;
-            string t = tint.ToLowerInvariant();
-            if (t == "amber") { tR = 1.0f; tG = 0.7f; tB = 0.1f; }
-            else if (t == "cyan") { tR = 0.1f; tG = 0.85f; tB = 1.0f; }
-            else if (t == "clean" || t == "white") { tR = 1.0f; tG = 1.0f; tB = 1.0f; }
-
-            for (int i = 0; i < 3; i++)
+            if (t == "clean")
             {
-                basis[i * 5 + 0] *= tR;
-                basis[i * 5 + 1] *= tG;
-                basis[i * 5 + 2] *= tB;
+                // Preserve natural game colors while boosting shadow gain
+                return new float[25]
+                {
+                    2.6f, 0f,   0f,   0f, 0f,
+                    0f,   2.6f, 0f,   0f, 0f,
+                    0f,   0f,   2.6f, 0f, 0f,
+                    0f,   0f,   0f,   1f, 0f,
+                    bl,   bl,   bl,   0f, 1f
+                };
             }
 
-            float bl = Math.Clamp(blackLevel, 0, 100) / 100.0f;
-            basis[20] += bl * 0.08f;
-            basis[21] += bl * 0.08f;
-            basis[22] += bl * 0.08f;
+            float gR, gG, gB;
+            if (t == "amber") { gR = 2.50f; gG = 1.75f; gB = 0.25f; }
+            else if (t == "cyan") { gR = 0.25f; gG = 2.15f; gB = 2.60f; }
+            else if (t == "white") { gR = 1.85f; gG = 1.85f; gB = 1.85f; }
+            else { gR = 0.25f; gG = 3.80f; gB = 0.50f; } // Classic Night Green
+
+            // Sum all RGB luminance evenly into the tinted night-vision spectrum
+            float[] basis = new float[25]
+            {
+                0.33f * gR, 0.33f * gG, 0.33f * gB, 0f, 0f,
+                0.34f * gR, 0.34f * gG, 0.34f * gB, 0f, 0f,
+                0.33f * gR, 0.33f * gG, 0.33f * gB, 0f, 0f,
+                0f,         0f,         0f,         1f, 0f,
+                bl - 0.004f, bl - 0.015f, bl - 0.004f, 0f, 1f
+            };
             return basis;
         }
 

@@ -66,10 +66,30 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
   // Invert Colours for NVG (Thermal White-Hot Night Vision)
   const [invertColors, setInvertColors] = useState<boolean>(false);
 
-  // Hold to zoom settings matching screenshot 2
-  const [holdToZoom, setHoldToZoom] = useState<boolean>(true);
-  const [zoomKey, setZoomKey] = useState<string>('Mouse 5');
-  const [zoomLevel, setZoomLevel] = useState<number>(2.0);
+  // Hold to zoom settings (persisted, defaults off so Mouse 5 isn't hijacked unexpectedly)
+  const [holdToZoom, setHoldToZoom] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('plexus_zoom_hold');
+      return saved ? JSON.parse(saved) : false;
+    } catch {
+      return false;
+    }
+  });
+  const [zoomKey, setZoomKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem('plexus_zoom_key') || 'Mouse 5';
+    } catch {
+      return 'Mouse 5';
+    }
+  });
+  const [zoomLevel, setZoomLevel] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('plexus_zoom_level');
+      return saved ? parseFloat(saved) || 2.0 : 2.0;
+    } catch {
+      return 2.0;
+    }
+  });
   const [showKeyPicker, setShowKeyPicker] = useState<boolean>(false);
   const [isZooming, setIsZooming] = useState<boolean>(false);
 
@@ -288,15 +308,16 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
     }
   }, [strength, colorMode, previewToggle, invertColors]);
 
-  // LIVE MONITOR DISPLAY SYNC: Whenever active on monitor, update display instantly
+  // LIVE MONITOR DISPLAY SYNC: Whenever active on monitor or invertColors is active, update display instantly
   useEffect(() => {
-    if (isActiveOnMonitor && window.electronAPI) {
+    if (!window.electronAPI) return;
+    if (isActiveOnMonitor || invertColors) {
       window.electronAPI.applyDisplaySettings({
         targetMonitors: getTargetMonitors(),
-        gamma: 1.25,
-        brightness: 1.15,
-        contrast: 1.1,
-        darkBoost: strength,
+        gamma: isActiveOnMonitor ? 1.25 : 1.0,
+        brightness: isActiveOnMonitor ? 1.15 : 1.0,
+        contrast: isActiveOnMonitor ? 1.1 : 1.0,
+        darkBoost: isActiveOnMonitor ? strength : 0,
         colorMode: colorMode,
         blackLevel: blackLevel,
         invertColors: invertColors,
@@ -306,6 +327,11 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
 
   // LIVE ZOOM CONFIG SYNC: Instant raw zoom without lag or smoothing
   useEffect(() => {
+    try {
+      localStorage.setItem('plexus_zoom_hold', JSON.stringify(holdToZoom));
+      localStorage.setItem('plexus_zoom_key', zoomKey);
+      localStorage.setItem('plexus_zoom_level', String(zoomLevel));
+    } catch {}
     if (window.electronAPI) {
       window.electronAPI.setZoomConfig({
         holdToZoom,
@@ -324,22 +350,21 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
     const unregDark = window.electronAPI.onDarkBoostToggle?.(() => {
       setIsActiveOnMonitor((prev) => {
         const next = !prev;
-        if (next) {
+        if (next || invertColors) {
           window.electronAPI?.applyDisplaySettings({
             targetMonitors: getTargetMonitors(),
-            gamma: 1.25,
-            brightness: 1.15,
-            contrast: 1.1,
-            darkBoost: strength,
+            gamma: next ? 1.25 : 1.0,
+            brightness: next ? 1.15 : 1.0,
+            contrast: next ? 1.1 : 1.0,
+            darkBoost: next ? strength : 0,
             colorMode: colorMode,
             blackLevel: blackLevel,
             invertColors: invertColors,
           });
-          onNotify?.(`Dark Boost toggled ON (${colorMode.toUpperCase()}${invertColors ? ' + INVERT' : ''})`);
         } else {
           window.electronAPI?.resetDisplaySettings();
-          onNotify?.('Dark Boost toggled OFF');
         }
+        onNotify?.(next ? `Dark Boost toggled ON (${colorMode.toUpperCase()}${invertColors ? ' + INVERT' : ''})` : 'Dark Boost toggled OFF');
         return next;
       });
     });
@@ -370,18 +395,18 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
     setIsActiveOnMonitor(nextState);
 
     if (window.electronAPI) {
-      if (nextState) {
+      if (nextState || invertColors) {
         await window.electronAPI.applyDisplaySettings({
           targetMonitors: getTargetMonitors(),
-          gamma: 1.25,
-          brightness: 1.15,
-          contrast: 1.1,
-          darkBoost: strength,
+          gamma: nextState ? 1.25 : 1.0,
+          brightness: nextState ? 1.15 : 1.0,
+          contrast: nextState ? 1.1 : 1.0,
+          darkBoost: nextState ? strength : 0,
           colorMode: colorMode,
           blackLevel: blackLevel,
           invertColors: invertColors,
         });
-        onNotify?.(`Dark Boost (${colorMode.toUpperCase()}${invertColors ? ' + INVERT' : ''}) applied to monitor!`);
+        onNotify?.(nextState ? `Dark Boost (${colorMode.toUpperCase()}${invertColors ? ' + INVERT' : ''}) applied to monitor!` : 'Dark Boost turned OFF (Invert Colours still active).');
       } else {
         await window.electronAPI.resetDisplaySettings();
         onNotify?.('Display restored to standard profile.');
@@ -394,17 +419,21 @@ export const DarkBoostPage: React.FC<DarkBoostPageProps> = ({ onNotify }) => {
   const handleToggleInvertColors = async () => {
     const next = !invertColors;
     setInvertColors(next);
-    if (isActiveOnMonitor && window.electronAPI) {
-      await window.electronAPI.applyDisplaySettings({
-        targetMonitors: getTargetMonitors(),
-        gamma: 1.25,
-        brightness: 1.15,
-        contrast: 1.1,
-        darkBoost: strength,
-        colorMode: colorMode,
-        blackLevel: blackLevel,
-        invertColors: next,
-      });
+    if (window.electronAPI) {
+      if (next || isActiveOnMonitor) {
+        await window.electronAPI.applyDisplaySettings({
+          targetMonitors: getTargetMonitors(),
+          gamma: isActiveOnMonitor ? 1.25 : 1.0,
+          brightness: isActiveOnMonitor ? 1.15 : 1.0,
+          contrast: isActiveOnMonitor ? 1.1 : 1.0,
+          darkBoost: isActiveOnMonitor ? strength : 0,
+          colorMode: colorMode,
+          blackLevel: blackLevel,
+          invertColors: next,
+        });
+      } else {
+        await window.electronAPI.resetDisplaySettings();
+      }
     }
     onNotify?.(`Invert Colours (Thermal NVG): ${next ? 'ON' : 'OFF'}`);
   };
